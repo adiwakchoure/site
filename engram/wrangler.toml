@@ -1,0 +1,12 @@
+name = "engram"
+compatibility_date = "2026-02-28"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".svelte-kit/cloudflare"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "engram"
+database_id = "16f426ee-7e42-4ccc-989d-b9d4c52742e7"
+
+[ai]
+binding = "AI"
