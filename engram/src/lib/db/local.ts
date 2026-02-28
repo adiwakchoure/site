@@ -6,6 +6,7 @@ import type {
 	Loop,
 	LoopEnergy,
 	LoopEvent,
+	LoopNote,
 	LoopPersonRole,
 	LoopPriority,
 	Person,
@@ -35,6 +36,13 @@ async function nextSequence(loopId: string | null): Promise<number> {
 async function putLoop(loop: Loop) {
 	await db.loops.put(loop);
 	await queue({ table: 'loops', op: 'put', id: loop.id, data: loop as unknown as Record<string, unknown>, ts: loop.updatedAt });
+}
+
+async function touchLoop(loopId: string, at: string) {
+	const current = await db.loops.get(loopId);
+	if (!current) return;
+	const next: Loop = { ...current, updatedAt: at };
+	await putLoop(next);
 }
 
 export async function createLoop(input: {
@@ -93,11 +101,13 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'ti
 	const now = nowIso();
 	const next: Loop = { ...current, ...changes, updatedAt: now };
 	await putLoop(next);
+	const cleanEntries = Object.entries(changes).filter(([, val]) => val !== undefined);
+	if (cleanEntries.length === 0) return next;
 	await putEvent({
 		id: uid('evt'),
 		loopId,
 		kind: 'updated',
-		body: Object.entries(changes)
+		body: cleanEntries
 			.map(([key, val]) => `${key} -> ${String(val ?? '')}`)
 			.join(', '),
 		meta: JSON.stringify(changes),
@@ -172,10 +182,39 @@ export async function addUpdate(loopId: string, text: string, dumpId: string | n
 		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
-	await updateLoop(loopId, {});
+	await touchLoop(loopId, now);
 }
 
 export const addNote = addUpdate;
+
+async function putLoopNote(note: LoopNote) {
+	await db.loopNotes.put(note);
+	await queue({ table: 'loop_notes', op: 'put', id: note.id, data: note as unknown as Record<string, unknown>, ts: note.updatedAt });
+}
+
+export async function addLoopNote(loopId: string, body: string) {
+	const now = nowIso();
+	const note: LoopNote = {
+		id: uid('note'),
+		loopId,
+		body,
+		createdAt: now,
+		updatedAt: now
+	};
+	await putLoopNote(note);
+	await touchLoop(loopId, now);
+	return note;
+}
+
+export async function updateLoopNote(noteId: string, body: string) {
+	const current = await db.loopNotes.get(noteId);
+	if (!current) return null;
+	const now = nowIso();
+	const next: LoopNote = { ...current, body, updatedAt: now };
+	await putLoopNote(next);
+	await touchLoop(next.loopId, now);
+	return next;
+}
 
 export async function deleteLoop(loopId: string) {
 	const current = await db.loops.get(loopId);
@@ -305,3 +344,4 @@ export const liveProjects = () => liveQuery(() => db.projects.toArray());
 export const liveDumps = () => liveQuery(() => db.dumps.toArray());
 export const liveLoopPeople = () => liveQuery(() => db.loopPeople.toArray());
 export const liveSuggestions = () => liveQuery(() => db.suggestions.toArray());
+export const liveLoopNotes = () => liveQuery(() => db.loopNotes.toArray());

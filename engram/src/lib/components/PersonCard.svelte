@@ -41,7 +41,7 @@
 			<i></i>
 		{/if}
 	</div>
-	<div class="stats" aria-label="open tasks">
+	<div class="stats" aria-label="open loops">
 		<div class="count">{openCount}</div>
 		<div class="label">open</div>
 		<ChevronRight size={14} />
@@ -54,12 +54,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		background: rgba(255, 255, 255, 0.4);
-		border: 1px solid rgba(0, 0, 0, 0.06);
+		background: rgba(255, 255, 255, 0.5);
+		border: 1px solid rgba(0, 0, 0, 0.05);
 		border-radius: 12px;
-		padding: 10px 12px;
+		padding: 12px;
 		box-shadow: var(--shadow-sm);
-		transition: all 0.2s var(--ease-spring);
+		transition: all var(--dur-base) var(--ease-spring);
 		animation: cardIn 0.26s var(--ease-spring);
 		text-align: left;
 	}
@@ -92,14 +92,17 @@
 
 	h3 {
 		margin: 0;
-		font-size: 14px;
-		font-weight: 400;
+		font-family: var(--font-serif);
+		font-size: 16px;
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
 	}
 
 	.title span {
 		color: var(--text4);
 		font-size: 11px;
-		font-weight: 300;
+		font-weight: var(--weight-light);
 	}
 
 	.stats {
@@ -111,7 +114,7 @@
 	.count {
 		font-size: 16px;
 		color: var(--accent);
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 	}
 
 	.label {
@@ -124,6 +127,6 @@
 	}
 
 	:global(svg) {
-		transition: transform 0.15s var(--ease);
+		transition: transform var(--dur-fast) var(--ease);
 	}
 </style>

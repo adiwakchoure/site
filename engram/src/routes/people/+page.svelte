@@ -67,9 +67,9 @@
 				<article><strong>{stats(selectedPerson.id).longest}d</strong><span>Longest</span></article>
 			</div>
 			<section>
-				<h4>Open tasks</h4>
+				<h4>Open loops</h4>
 				{#if stats(selectedPerson.id).openLoops.length === 0}
-					<p class="empty-inline">No open tasks.</p>
+					<p class="empty-inline">No open loops.</p>
 				{:else}
 					{#each stats(selectedPerson.id).openLoops as loop (loop.id)}
 						<LoopCard loop={loop} onSelect={() => {}} />
@@ -95,12 +95,12 @@
 <style>
 	.list {
 		display: grid;
-		gap: 6px;
+		gap: 8px;
 	}
 
 	.detail {
 		display: grid;
-		gap: 10px;
+		gap: 12px;
 	}
 
 	.back {
@@ -120,9 +120,10 @@
 
 	h2 {
 		margin: 0;
-		font-family: 'Instrument Serif', 'Times New Roman', serif;
-		font-size: 22px;
-		font-weight: 400;
+		font-family: var(--font-serif);
+		font-size: var(--text-2xl);
+		font-weight: var(--weight-normal);
+		letter-spacing: var(--tracking-tight);
 	}
 
 	header p {
@@ -134,11 +135,11 @@
 	.stat-grid {
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: 6px;
+		gap: 8px;
 	}
 
 	.stat-grid article {
-		padding: 10px;
+		padding: 12px;
 		border-radius: 12px;
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		background: rgba(255, 255, 255, 0.5);
@@ -147,7 +148,7 @@
 	}
 
 	.stat-grid strong {
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 18px;
 		font-weight: 300;
 	}
@@ -156,7 +157,7 @@
 		display: block;
 		font-size: 9px;
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		letter-spacing: var(--tracking-caps);
 		color: var(--text3);
 	}
 
@@ -164,13 +165,13 @@
 		margin: 0 0 8px;
 		font-size: 10px;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: var(--tracking-caps-wide);
 		color: var(--text3);
 	}
 
 	.resolved {
 		display: grid;
-		gap: 6px;
+		gap: 8px;
 		opacity: 0.4;
 	}
 
@@ -179,8 +180,8 @@
 		align-items: center;
 		gap: 6px;
 		font-size: 13px;
-		padding: 7px 8px;
-		border-radius: 10px;
+		padding: 8px 10px;
+		border-radius: 12px;
 		transition: all 0.15s var(--ease);
 	}
 
@@ -193,7 +194,7 @@
 		margin-left: auto;
 		font-size: 10px;
 		color: var(--text3);
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 	}
 
 	.empty-inline {

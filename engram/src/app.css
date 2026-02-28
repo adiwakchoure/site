@@ -3,6 +3,25 @@
 	font-family: 'DM Sans', Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 	background: #faf9f7;
 	color: #1a1a1a;
+	--font-sans: 'DM Sans', Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+	--font-serif: 'Instrument Serif', 'Times New Roman', serif;
+	--font-mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	--text-xxs: 9px;
+	--text-xs: 10px;
+	--text-sm: 12px;
+	--text-md: 14px;
+	--text-lg: 16px;
+	--text-xl: 19px;
+	--text-2xl: 22px;
+	--weight-light: 300;
+	--weight-normal: 400;
+	--weight-medium: 500;
+	--leading-tight: 1.28;
+	--leading-normal: 1.45;
+	--leading-relaxed: 1.6;
+	--tracking-tight: 0.01em;
+	--tracking-caps: 0.06em;
+	--tracking-caps-wide: 0.08em;
 	--bg: #faf9f7;
 	--bg2: #f2f0ed;
 	--surface: #eae8e4;
@@ -22,6 +41,10 @@
 	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 	--ease: cubic-bezier(0.4, 0, 0.2, 1);
 	--ease-snap: cubic-bezier(0.2, 0, 0, 1);
+	--dur-fast: 140ms;
+	--dur-base: 220ms;
+	--dur-slow: 340ms;
+	--ring-accent: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 * {
@@ -43,6 +66,13 @@ body {
 body {
 	display: flex;
 	justify-content: center;
+	font-family: var(--font-sans);
+	font-size: var(--text-md);
+	font-weight: var(--weight-light);
+	line-height: var(--leading-normal);
+	color: var(--text);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
 #svelte {
@@ -80,18 +110,19 @@ select {
 
 .app-title {
 	margin: 0;
-	font-family: 'Instrument Serif', 'Times New Roman', serif;
-	font-size: 22px;
-	font-weight: 400;
-	letter-spacing: 0.01em;
+	font-family: var(--font-serif);
+	font-size: var(--text-2xl);
+	font-weight: var(--weight-normal);
+	letter-spacing: var(--tracking-tight);
+	line-height: 1.1;
 }
 
 .app-open-meta {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 12px;
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
 	color: var(--text3);
 }
 
@@ -125,7 +156,7 @@ select {
 	text-decoration: none;
 	color: var(--text3);
 	font-size: 11px;
-	font-weight: 300;
+	font-weight: var(--weight-light);
 	opacity: 0.7;
 	transform: scale(0.97);
 	transition:
@@ -136,7 +167,7 @@ select {
 
 .tab-item.active {
 	color: var(--accent);
-	font-weight: 500;
+	font-weight: var(--weight-medium);
 	opacity: 1;
 	transform: scale(1);
 }
@@ -188,6 +219,26 @@ select {
 	from {
 		opacity: 0;
 		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes rowFlash {
+	from {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+	to {
+		background: transparent;
+	}
+}
+
+@keyframes rowEnter {
+	from {
+		opacity: 0;
+		transform: translateY(5px);
 	}
 	to {
 		opacity: 1;

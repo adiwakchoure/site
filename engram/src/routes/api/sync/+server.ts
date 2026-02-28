@@ -4,7 +4,7 @@ import type { RequestHandler } from './$types';
 import { ensureD1Schema } from '$db/bootstrap';
 
 const changeSchema = z.object({
-	table: z.enum(['loops', 'events', 'people', 'projects', 'dumps', 'suggestions', 'loop_person']),
+	table: z.enum(['loops', 'events', 'loop_notes', 'people', 'projects', 'dumps', 'suggestions', 'loop_person']),
 	op: z.enum(['put', 'delete']),
 	id: z.string(),
 	data: z.record(z.string(), z.unknown()).optional(),
@@ -19,6 +19,7 @@ const payloadSchema = z.object({
 const tablePrimaryKey = {
 	loops: 'id',
 	events: 'id',
+	loop_notes: 'id',
 	people: 'id',
 	projects: 'id',
 	dumps: 'id',
@@ -34,6 +35,31 @@ const normalizeForDb = (obj: Record<string, unknown>) =>
 
 const normalizeForClient = (obj: Record<string, unknown>) =>
 	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toCamel(key), val]));
+
+async function rowExists(env: App.Platform['env'], table: string, id: unknown) {
+	if (typeof id !== 'string' || !id) return false;
+	const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`).bind(id).first();
+	return Boolean(row);
+}
+
+async function normalizeForeignKeys(env: App.Platform['env'], table: keyof typeof tablePrimaryKey | 'loop_person', data: Record<string, unknown>) {
+	// Keep sync resilient when old/local queue entries reference rows
+	// that no longer exist after schema/content resets.
+	if (table === 'events') {
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+	}
+	if (table === 'suggestions') {
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+	}
+	if (table === 'loops') {
+		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id))) data.project_id = null;
+		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id))) data.parent_id = null;
+	}
+	if (table === 'loop_notes') {
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
+	}
+}
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
@@ -59,12 +85,22 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			}
 		} else if (change.data) {
 			const dbData = normalizeForDb(change.data);
+			await normalizeForeignKeys(env as App.Platform['env'], change.table, dbData);
 			const keys = Object.keys(dbData);
 			const values = Object.values(dbData);
 			const placeholders = keys.map(() => '?').join(', ');
 			if (change.table === 'loop_person') {
+				const hasLoop = await rowExists(env as App.Platform['env'], 'loops', dbData.loop_id);
+				const hasPerson = await rowExists(env as App.Platform['env'], 'people', dbData.person_id);
+				if (!hasLoop || !hasPerson) continue;
 				const onConflict = keys.filter((k) => !['loop_id', 'person_id'].includes(k)).map((k) => `${k}=excluded.${k}`).join(', ');
 				const sql = `INSERT INTO loop_person (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(loop_id, person_id) DO UPDATE SET ${onConflict || 'role=excluded.role'}`;
+				await env.DB.prepare(sql).bind(...values).run();
+			} else if (change.table === 'loop_notes') {
+				const hasLoop = await rowExists(env as App.Platform['env'], 'loops', dbData.loop_id);
+				if (!hasLoop) continue;
+				const onConflict = keys.filter((k) => k !== 'id').map((k) => `${k}=excluded.${k}`).join(', ');
+				const sql = `INSERT INTO loop_notes (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${onConflict}`;
 				await env.DB.prepare(sql).bind(...values).run();
 			} else {
 				const onConflict = keys.filter((k) => k !== 'id').map((k) => `${k}=excluded.${k}`).join(', ');
@@ -82,6 +118,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const events = await env.DB.prepare('SELECT * FROM events WHERE created_at > ? ORDER BY created_at ASC LIMIT 400').bind(lastSync).all();
 	for (const row of events.results ?? []) {
 		outgoing.push({ table: 'events', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
+	}
+	const loopNotes = await env.DB.prepare('SELECT * FROM loop_notes WHERE updated_at > ? ORDER BY updated_at ASC LIMIT 300').bind(lastSync).all();
+	for (const row of loopNotes.results ?? []) {
+		outgoing.push({
+			table: 'loop_notes',
+			op: 'put',
+			id: String((row as Record<string, unknown>).id),
+			data: normalizeForClient(row as Record<string, unknown>),
+			ts: String((row as Record<string, unknown>).updated_at)
+		});
 	}
 	const people = await env.DB.prepare('SELECT * FROM people WHERE created_at > ? ORDER BY created_at ASC LIMIT 100').bind(lastSync).all();
 	for (const row of people.results ?? []) {

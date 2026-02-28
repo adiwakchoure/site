@@ -148,7 +148,7 @@
 
 <style>
 	.tabs-wrap {
-		margin-bottom: 8px;
+		margin-bottom: 12px;
 	}
 
 	.tabs {
@@ -161,14 +161,14 @@
 
 	.grid {
 		display: flex;
-		gap: 6px;
+		gap: 8px;
 		flex-wrap: wrap;
-		margin-bottom: 10px;
+		margin-bottom: 12px;
 	}
 
 	.stat {
 		flex: 1 1 calc(50% - 6px);
-		padding: 10px;
+		padding: 12px;
 		border-radius: 12px;
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		background: rgba(255, 255, 255, 0.5);
@@ -182,39 +182,42 @@
 		border-left: 3px solid var(--amber);
 		background: rgba(255, 255, 255, 0.5);
 		box-shadow: var(--shadow-sm);
-		padding: 10px;
-		margin-bottom: 10px;
+		padding: 12px;
+		margin-bottom: 12px;
 	}
 
 	.oldest h4 {
-		margin: 0 0 6px;
-		font-size: 9.5px;
+		margin: 0 0 8px;
+		font-size: 10px;
 		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
 		color: var(--amber);
 	}
 
 	.oldest strong {
 		display: block;
-		font-family: 'Instrument Serif', 'Times New Roman', serif;
+		font-family: var(--font-serif);
 		font-size: 15px;
-		font-weight: 400;
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
 	}
 
 	.oldest span {
 		font-size: 10.5px;
 		color: var(--text3);
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 	}
 
 	.charts {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 10px;
-		margin-bottom: 10px;
+		gap: 12px;
+		margin-bottom: 12px;
 	}
 
 	.chart-card {
-		padding: 10px;
+		padding: 12px;
 		border-radius: 12px;
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		background: rgba(255, 255, 255, 0.5);
@@ -222,10 +225,10 @@
 	}
 
 	h4 {
-		margin: 0 0 10px;
-		font-size: 9px;
+		margin: 0 0 8px;
+		font-size: 10px;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		letter-spacing: var(--tracking-caps);
 		color: var(--text3);
 	}
 
@@ -256,7 +259,7 @@
 		transform: translateX(-50%);
 		font-size: 8px;
 		color: var(--text3);
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 	}
 
 	.line-grid {
@@ -324,18 +327,19 @@
 
 	.list {
 		display: grid;
-		gap: 6px;
+		gap: 8px;
 	}
 
 	.archive-item {
 		width: 100%;
-		padding: 8px;
+		padding: 12px;
 		border-radius: 12px;
 		opacity: 0.5;
 		transition: all 0.15s var(--ease);
 		animation: cardIn 0.2s var(--ease-spring);
-		background: rgba(255, 255, 255, 0.4);
-		border: 0;
+		background: rgba(255, 255, 255, 0.5);
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		box-shadow: var(--shadow-sm);
 		text-align: left;
 	}
 
@@ -349,14 +353,17 @@
 		font-size: 9px;
 		color: var(--text3);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		letter-spacing: var(--tracking-caps);
 	}
 
 	.list h4 {
 		margin: 0;
-		font-size: 13px;
-		font-weight: 300;
-		color: var(--text2);
+		font-family: var(--font-serif);
+		font-size: 15px;
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
+		color: var(--text);
 	}
 
 	.archive-meta {
@@ -369,7 +376,7 @@
 	.archive-meta span {
 		font-size: 10px;
 		color: var(--text3);
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 	}
 
 	.empty-inline {

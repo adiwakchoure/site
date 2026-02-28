@@ -65,13 +65,13 @@
 		grid-template-columns: 3px 1fr auto;
 		gap: 10px;
 		align-items: start;
-		margin-bottom: 6px;
+		margin-bottom: 8px;
 		padding: 12px 14px;
 		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.45);
+		background: rgba(255, 255, 255, 0.5);
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		box-shadow: var(--shadow-sm);
-		transition: all 0.2s var(--ease-spring);
+		transition: all var(--dur-base) var(--ease-spring);
 		animation: cardIn 0.24s var(--ease-spring);
 		text-align: left;
 	}
@@ -81,7 +81,7 @@
 		height: 100%;
 		border-radius: 99px;
 		background: color-mix(in srgb, var(--tone) 40%, transparent);
-		transition: background 0.2s var(--ease);
+		transition: background var(--dur-fast) var(--ease);
 	}
 
 	.main {
@@ -90,9 +90,11 @@
 
 	.title {
 		margin: 0;
-		font-size: 13.5px;
-		font-weight: 400;
-		line-height: 1.3;
+		font-family: var(--font-serif);
+		font-size: 15px;
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
 		color: var(--text);
 	}
 
@@ -111,7 +113,7 @@
 
 	.age {
 		font-size: 11px;
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		color: var(--text3);
 	}
 

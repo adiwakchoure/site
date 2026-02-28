@@ -296,11 +296,11 @@
 								item.action === 'add_note'
 									? 'update'
 									: item.action === 'open_loop'
-										? 'open task'
+										? 'open loop'
 										: item.action === 'close_loop'
-											? 'archive task'
+											? 'archive loop'
 											: item.action === 'update_loop'
-												? 'update task'
+												? 'update loop'
 												: item.action.replace('_', ' ')
 							}
 							color={item.action === 'open_loop' ? '#a0714a' : item.action === 'close_loop' ? '#3d8a4a' : item.action === 'update_loop' ? '#6e63a0' : '#5a5651'}
@@ -423,24 +423,30 @@
 
 	.suggestion-card {
 		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.7);
+		background: rgba(255, 255, 255, 0.5);
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		box-shadow: var(--shadow-sm);
-		padding: 8px;
+		padding: 12px;
 		animation: cardIn 0.25s var(--ease-spring);
+		transition:
+			opacity var(--dur-fast) var(--ease),
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease),
+			transform var(--dur-base) var(--ease-spring);
 	}
 
 	.suggestion-card.accepted {
 		border-color: color-mix(in srgb, var(--green) 30%, transparent);
 		background: color-mix(in srgb, var(--green) 8%, #fff);
 		opacity: 0.4;
+		transform: scale(0.985);
 	}
 
 	.suggestion-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
+		gap: 10px;
 	}
 
 	.suggestion-actions {
@@ -450,17 +456,20 @@
 	}
 
 	.suggestion-body {
-		margin: 6px 0 2px;
+		margin: 8px 0 2px;
 		font-size: 13px;
-		font-weight: 300;
+		font-weight: var(--weight-light);
+		line-height: var(--leading-normal);
 		color: var(--text2);
 	}
 
 	.open-title {
-		margin: 6px 0 4px;
-		font-family: 'Instrument Serif', 'Times New Roman', serif;
-		font-size: 14px;
-		font-weight: 400;
+		margin: 8px 0 5px;
+		font-family: var(--font-serif);
+		font-size: 15px;
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
 		color: var(--text);
 	}
 
@@ -471,10 +480,11 @@
 	}
 
 	.note-body {
-		margin: 6px 0 2px;
+		margin: 8px 0 2px;
 		font-size: 12px;
 		font-style: italic;
 		color: var(--text2);
+		line-height: var(--leading-normal);
 	}
 
 	.all-processed {
@@ -500,14 +510,14 @@
 		border-top: 1px solid rgba(0, 0, 0, 0.04);
 		border-radius: 12px;
 		display: grid;
-		gap: 8px;
-		padding: 8px 0 0;
+		gap: 12px;
+		padding: 10px 0 0;
 	}
 
 	.collapsed-row {
 		display: grid;
 		grid-template-columns: 1fr auto;
-		gap: 8px;
+		gap: 10px;
 		align-items: center;
 	}
 
@@ -526,7 +536,7 @@
 		border: 1px solid rgba(0, 0, 0, 0.06);
 		box-shadow: var(--shadow-sm);
 		font-size: 13px;
-		font-weight: 300;
+		font-weight: var(--weight-light);
 		color: var(--text4);
 		transition: all 0.2s var(--ease-spring);
 	}
@@ -541,8 +551,8 @@
 		background: rgba(255, 255, 255, 0.75);
 		padding: 10px 12px;
 		font-size: 14px;
-		font-weight: 300;
-		line-height: 1.6;
+		font-weight: var(--weight-light);
+		line-height: var(--leading-relaxed);
 	}
 
 	.input-shell.recording textarea {

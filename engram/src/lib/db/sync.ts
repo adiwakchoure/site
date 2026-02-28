@@ -10,6 +10,7 @@ interface SyncResponse {
 const TABLE_MAP = {
 	loops: db.loops,
 	events: db.events,
+	loop_notes: db.loopNotes,
 	people: db.people,
 	projects: db.projects,
 	dumps: db.dumps,
@@ -33,7 +34,7 @@ export async function syncNow() {
 	const payload = (await res.json()) as SyncResponse;
 	await db.transaction(
 		'rw',
-		[db.syncQueue, db.meta, db.loops, db.events, db.people, db.projects, db.dumps, db.suggestions, db.loopPeople],
+		[db.syncQueue, db.meta, db.loops, db.events, db.loopNotes, db.people, db.projects, db.dumps, db.suggestions, db.loopPeople],
 		async () => {
 			if (pending.length > 0) {
 				const seqs = pending.map((p) => p.seq).filter((v): v is number => typeof v === 'number');

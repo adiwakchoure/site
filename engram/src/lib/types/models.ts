@@ -35,6 +35,14 @@ export interface LoopEvent {
 	createdAt: string;
 }
 
+export interface LoopNote {
+	id: string;
+	loopId: string;
+	body: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface Person {
 	id: string;
 	name: string;
@@ -98,7 +106,7 @@ export interface SuggestedAction {
 	confidence?: 'high' | 'medium' | 'low';
 }
 
-export type SyncTable = 'loops' | 'events' | 'people' | 'loop_person' | 'projects' | 'dumps';
+export type SyncTable = 'loops' | 'events' | 'people' | 'loop_person' | 'projects' | 'dumps' | 'loop_notes';
 export type SyncTableV2 = SyncTable | 'suggestions';
 
 export interface SyncOp {

@@ -16,14 +16,14 @@
 	let scrubY = $state(0);
 	const width = 48;
 	const innerWidth = 42;
-	const pointsCount = 36;
 
 	const series = $derived.by(() => {
-		const now = new Date();
-		return Array.from({ length: pointsCount }, (_, idx) => {
-			const date = new Date(now);
-			date.setDate(now.getDate() - (pointsCount - idx - 1));
-			const at = date.getTime();
+		const dates = [...new Set(loops.map((loop) => new Date(loop.createdAt).toISOString()))]
+			.sort((a, b) => +new Date(a) - +new Date(b))
+			.map((iso) => new Date(iso));
+		const base = dates.length > 0 ? dates : [new Date()];
+		return base.map((date) => {
+			const at = +date;
 			const active = loops.filter((loop) => {
 				const created = new Date(loop.createdAt).getTime();
 				const closed = loop.closedAt ? new Date(loop.closedAt).getTime() : Number.POSITIVE_INFINITY;
@@ -39,12 +39,13 @@
 			return { date, active, overdue };
 		});
 	});
+	const pointsCount = $derived(series.length);
 
 	const maxVal = $derived(Math.max(1, ...series.map((entry) => entry.active)));
 	const activePath = $derived.by(() =>
 		series
 			.map((entry, i) => {
-				const y = (i / (pointsCount - 1)) * height;
+				const y = (i / Math.max(1, pointsCount - 1)) * height;
 				const x = Math.min(innerWidth, Math.max(0, (entry.active / maxVal) * innerWidth));
 				return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
 			})
@@ -55,7 +56,7 @@
 	const overduePath = $derived.by(() =>
 		series
 			.map((entry, i) => {
-				const y = (i / (pointsCount - 1)) * height;
+				const y = (i / Math.max(1, pointsCount - 1)) * height;
 				const x = Math.min(innerWidth, Math.max(0, (entry.overdue / maxVal) * innerWidth));
 				return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
 			})
@@ -65,7 +66,7 @@
 
 	const pointAtScrub = $derived.by(() => {
 		const ratio = Math.min(1, Math.max(0, scrubY / height));
-		const idx = Math.min(pointsCount - 1, Math.max(0, Math.round(ratio * (pointsCount - 1))));
+		const idx = Math.min(pointsCount - 1, Math.max(0, Math.round(ratio * Math.max(1, pointsCount - 1))));
 		return { idx, ...series[idx] };
 	});
 
@@ -208,13 +209,13 @@
 	.tooltip span {
 		font-size: 9px;
 		color: #f2f0ed;
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		white-space: nowrap;
 	}
 
 	.tooltip strong {
 		display: block;
-		font-family: 'Instrument Serif', 'Times New Roman', serif;
+		font-family: var(--font-serif);
 		font-size: 20px;
 		color: #a0714a;
 		font-weight: 400;

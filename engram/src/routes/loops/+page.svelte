@@ -117,7 +117,7 @@
 		grid-template-columns: 1fr auto;
 		gap: 8px;
 		align-items: center;
-		margin-bottom: 10px;
+		margin-bottom: 12px;
 	}
 
 	.filter-wrap {
@@ -139,8 +139,8 @@
 		background: transparent;
 		border-radius: 6px;
 		padding: 4px 7px;
-		font-size: 11px;
-		font-weight: 300;
+		font-size: var(--text-xs);
+		font-weight: var(--weight-light);
 		color: var(--text4);
 		transition: all 0.15s var(--ease);
 	}
@@ -148,7 +148,7 @@
 	.sorts button.active {
 		background: rgba(0, 0, 0, 0.04);
 		color: var(--text2);
-		font-weight: 400;
+		font-weight: var(--weight-normal);
 	}
 
 	.travel-banner {
@@ -166,14 +166,14 @@
 	.travel-banner span,
 	.travel-banner strong {
 		font-size: 10px;
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		color: var(--purple);
 	}
 
 	.layout {
 		display: grid;
 		grid-template-columns: 1fr 48px;
-		gap: 4px;
+		gap: 6px;
 		min-height: 0;
 		height: calc(100% - 44px);
 	}

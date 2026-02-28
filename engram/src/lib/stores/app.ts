@@ -17,6 +17,7 @@ function fromLiveQuery<T>(producer: () => Promise<T>) {
 
 export const loopsStore = fromLiveQuery(() => db.loops.toArray());
 export const eventsStore = fromLiveQuery(() => db.events.toArray());
+export const loopNotesStore = fromLiveQuery(() => db.loopNotes.toArray());
 export const peopleStore = fromLiveQuery(() => db.people.toArray());
 export const projectsStore = fromLiveQuery(() => db.projects.toArray());
 export const dumpsStore = fromLiveQuery(() => db.dumps.toArray());

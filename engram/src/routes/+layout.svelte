@@ -11,7 +11,7 @@
 
 	let { children } = $props();
 	const tabs = [
-		{ href: '/loops', label: 'Tasks', icon: Layers },
+		{ href: '/loops', label: 'Loops', icon: Layers },
 		{ href: '/people', label: 'People', icon: Users },
 		{ href: '/mirror', label: 'Mirror', icon: BarChart3 }
 	];
@@ -38,16 +38,16 @@
 </script>
 
 <svelte:head>
-	<title>engram | AI-native task tracking</title>
+	<title>engram | AI-native loop tracking</title>
 	<meta
 		name="description"
-		content="AI-native task tracking that clears your mind."
+		content="AI-native loop tracking that clears your mind."
 	/>
 	<link rel="canonical" href="https://engram.adiwak.com{$page.url.pathname}" />
 	<meta property="og:title" content="engram" />
 	<meta
 		property="og:description"
-		content="AI-native task tracking that clears your mind."
+		content="AI-native loop tracking that clears your mind."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:url" content="https://engram.adiwak.com{$page.url.pathname}" />
@@ -55,7 +55,7 @@
 	<meta name="twitter:title" content="engram" />
 	<meta
 		name="twitter:description"
-		content="AI-native task tracking that clears your mind."
+		content="AI-native loop tracking that clears your mind."
 	/>
 	<link rel="icon" href={favicon} />
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />

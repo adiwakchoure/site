@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS events (
   created_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS loop_notes (
+  id            TEXT PRIMARY KEY,
+  loop_id       TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
+  body          TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS people (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -95,5 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_loops_parent ON loops(parent_id) WHERE parent_id 
 CREATE INDEX IF NOT EXISTS idx_events_loop ON events(loop_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_sequence ON events(loop_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_loop_notes_loop ON loop_notes(loop_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_loop_person ON loop_person(person_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_dump ON suggestions(dump_id, status, created_at);
