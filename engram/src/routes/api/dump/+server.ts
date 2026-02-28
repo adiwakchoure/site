@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { env as privateEnv } from '$env/dynamic/private';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import type { SuggestedAction } from '$types/models';
@@ -34,6 +35,68 @@ function parseModelJson(raw: string): SuggestedAction[] | null {
 			return null;
 		}
 	}
+}
+
+const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
+const GROQ_REASONING_MODEL = 'openai/gpt-oss-120b';
+const GROQ_TRANSCRIPTION_MODEL = 'whisper-large-v3-turbo';
+
+function resolveGroqApiKey(env: App.Platform['env'] | undefined): string {
+	return env?.GROQ_API_KEY ?? privateEnv.GROQ_API_KEY ?? '';
+}
+
+async function transcribeWithGroq(audio: File, apiKey: string): Promise<string> {
+	const form = new FormData();
+	form.append('model', GROQ_TRANSCRIPTION_MODEL);
+	form.append('file', audio, audio.name || 'dump.webm');
+
+	const response = await fetch(`${GROQ_API_BASE_URL}/audio/transcriptions`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${apiKey}`
+		},
+		body: form
+	});
+	if (!response.ok) throw new Error(`Groq transcription failed: ${response.status}`);
+
+	const data = (await response.json()) as { text?: unknown };
+	return typeof data.text === 'string' ? data.text : '';
+}
+
+async function runReasoningWithGroq(prompt: string, temperature: number, apiKey: string): Promise<string> {
+	const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			model: GROQ_REASONING_MODEL,
+			messages: [
+				{ role: 'system', content: 'Return strictly JSON array only.' },
+				{ role: 'user', content: prompt }
+			],
+			temperature
+		})
+	});
+	if (!response.ok) throw new Error(`Groq chat completion failed: ${response.status}`);
+
+	const data = (await response.json()) as {
+		choices?: Array<{
+			message?: {
+				content?: string | Array<{ type?: string; text?: string }>;
+			};
+		}>;
+	};
+	const content = data.choices?.[0]?.message?.content;
+	if (typeof content === 'string') return content;
+	if (Array.isArray(content)) {
+		return content
+			.filter((part) => part && typeof part.text === 'string')
+			.map((part) => part.text as string)
+			.join('\n');
+	}
+	return '';
 }
 
 async function loadActiveContext(env: App.Platform['env']) {
@@ -72,6 +135,8 @@ async function loadActiveContext(env: App.Platform['env']) {
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
+	const groqApiKey = resolveGroqApiKey(env as App.Platform['env'] | undefined);
+	const aiAvailable = Boolean(groqApiKey);
 	const contentType = request.headers.get('content-type') ?? '';
 	const context = await loadActiveContext(env as App.Platform['env']);
 
@@ -84,7 +149,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		if (!(audio instanceof File)) return json({ error: 'Missing audio file' }, { status: 400 });
 		source = 'voice';
 
-		if (!env?.AI) {
+		if (!aiAvailable) {
 			return json({
 				transcript: '',
 				source,
@@ -94,13 +159,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		}
 
 		try {
-			const buffer = await audio.arrayBuffer();
-			const uint8 = Array.from(new Uint8Array(buffer));
-			const whisper = await (env.AI as any).run('@cf/openai/whisper', {
-				audio: uint8
-			});
-			text =
-				typeof whisper === 'object' && whisper && 'text' in whisper ? String((whisper as { text: string }).text ?? '') : '';
+			text = await transcribeWithGroq(audio, groqApiKey);
 		} catch {
 			text = '';
 		}
@@ -109,7 +168,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			return json({
 				transcript: '',
 				source,
-				aiAvailable: !!env?.AI,
+				aiAvailable,
 				active: { openCount: context.openCount, overdueCount: context.overdueCount },
 				suggestions: [{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', energy: 'active', confidence: 'low' }]
 			});
@@ -122,7 +181,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	const fallback = heuristicSuggestions(text);
 
-	if (!env?.AI) {
+	if (!aiAvailable) {
 		return json({
 			transcript: text,
 			source,
@@ -177,22 +236,12 @@ RULES:
 Text: ${text}
 `.trim();
 
-		const runModel = async (temperature: number) =>
-			(env.AI as any).run('@cf/zai-org/glm-4.7-flash', {
-				messages: [
-					{ role: 'system', content: 'Return strictly JSON array only.' },
-					{ role: 'user', content: prompt }
-				],
-				temperature
-			});
+		const runModel = async (temperature: number) => runReasoningWithGroq(prompt, temperature, groqApiKey);
 
-		let result = await runModel(0.2);
-		let responseText =
-			typeof result === 'object' && result && 'response' in result ? String(result.response ?? '') : '';
+		let responseText = await runModel(0.2);
 		let suggestions = parseModelJson(responseText);
 		if (!suggestions) {
-			result = await runModel(0.1);
-			responseText = typeof result === 'object' && result && 'response' in result ? String(result.response ?? '') : '';
+			responseText = await runModel(0.1);
 			suggestions = parseModelJson(responseText);
 		}
 

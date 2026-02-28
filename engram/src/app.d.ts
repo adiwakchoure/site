@@ -1,11 +1,11 @@
-import type { Ai, D1Database } from '@cloudflare/workers-types';
+import type { D1Database } from '@cloudflare/workers-types';
 
 declare global {
 	namespace App {
 		interface Platform {
 			env: {
 				DB: D1Database;
-				AI?: Ai;
+				GROQ_API_KEY?: string;
 			};
 			context: ExecutionContext;
 			cf: IncomingRequestCfProperties;

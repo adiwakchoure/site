@@ -7,8 +7,8 @@ It turns brain dumps into structured actions, lets you accept/dismiss suggestion
 ## Core Product Flow
 
 1. Capture input (`text` or `voice`).
-2. Convert voice to transcript with Whisper.
-3. Parse transcript into action suggestions with GLM.
+2. Convert voice to transcript with Groq `whisper-large-v3-turbo`.
+3. Parse transcript into action suggestions with Groq `openai/gpt-oss-120b`.
 4. Accept/dismiss suggestion cards.
 5. Accepted actions mutate loops and append events.
 6. Local state syncs to Cloudflare D1.
@@ -18,7 +18,7 @@ It turns brain dumps into structured actions, lets you accept/dismiss suggestion
 - Frontend: SvelteKit + TypeScript
 - Local storage: Dexie (IndexedDB)
 - Cloud DB: Cloudflare D1
-- AI: Cloudflare Workers AI (Whisper + GLM)
+- AI: Groq OpenAI-compatible API (`whisper-large-v3-turbo` + `openai/gpt-oss-120b`)
 - Hosting/Functions: Cloudflare Pages
 
 ## Repository Structure
@@ -52,6 +52,12 @@ npm install
 npm run dev
 ```
 
+Create `engram/.env` with:
+
+```bash
+GROQ_API_KEY=your_groq_api_key
+```
+
 Useful checks:
 
 ```bash
@@ -64,14 +70,19 @@ npm run build
 The app expects:
 
 - D1 binding: `DB`
-- AI binding: `AI`
+- Environment variable/secret: `GROQ_API_KEY`
 
 Configured in `wrangler.toml`:
 
 - `compatibility_date` and `nodejs_compat`
 - `pages_build_output_dir = ".svelte-kit/cloudflare"`
 - `[[d1_databases]]` binding
-- `[ai]` binding
+
+For production on Cloudflare Pages, configure:
+
+```bash
+npx wrangler pages secret put GROQ_API_KEY --project-name engram
+```
 
 ## Deploy
 
