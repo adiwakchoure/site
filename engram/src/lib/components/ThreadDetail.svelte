@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
-	import { Check, RotateCw, X } from 'lucide-svelte';
+	import { RotateCw, X } from 'lucide-svelte';
 	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
-	import type { ClosedReason, Loop, LoopEvent } from '$types/models';
+	import type { Loop, LoopEvent } from '$types/models';
 	import ActionBtn from '$components/ActionBtn.svelte';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
@@ -39,8 +40,6 @@
 	let descriptionDraft = $state('');
 	let descriptionDirty = $state(false);
 	let descriptionLoopId = $state<string | null>(null);
-	let resolveMode = $state(false);
-	let reason = $state<ClosedReason>('done');
 	let optimistic = $state<OptimisticTimelineEntry[]>([]);
 	let updateInput = $state<HTMLInputElement | null>(null);
 	let toast = $state<string | null>(null);
@@ -138,6 +137,7 @@
 	}
 
 	function startDrag(event: PointerEvent) {
+		if (!browser) return;
 		if (event.button !== 0) return;
 		dragging = true;
 		dragStartY = event.clientY;
@@ -222,8 +222,7 @@
 	async function resolveLoop() {
 		if (!loop) return;
 		try {
-			await closeLoop(loop.id, reason);
-			resolveMode = false;
+			await closeLoop(loop.id, 'done');
 			showToast('Loop closed');
 		} catch {
 			showToast('Could not close loop');
@@ -242,6 +241,7 @@
 
 	onDestroy(() => {
 		if (toastTimer) clearTimeout(toastTimer);
+		if (!browser) return;
 		window.removeEventListener('pointermove', onDragMove);
 		window.removeEventListener('pointerup', onDragEnd);
 		window.removeEventListener('pointercancel', onDragEnd);
@@ -291,6 +291,23 @@
 					<IconBtn title="Close" size={30} onClick={onClose}><X size={14} /></IconBtn>
 				</div>
 				<h2 class="head-title">{loop.title}</h2>
+				<textarea
+					class="head-description"
+					bind:value={descriptionDraft}
+					placeholder="Add a simple description..."
+					oninput={() => (descriptionDirty = true)}
+					onblur={saveDescription}
+					onkeydown={(event) => {
+						if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+							event.preventDefault();
+							event.stopPropagation();
+							saveDescription();
+						}
+					}}
+				></textarea>
+				{#if descriptionDirty}
+					<p class="description-hint">Unsaved changes</p>
+				{/if}
 			</header>
 			<div class="body">
 				<section class="context">
@@ -299,24 +316,6 @@
 						{#if loop.deadline}<p>Deadline {new Date(loop.deadline).toLocaleDateString()}</p>{/if}
 						{#if loop.closedAt}<p>Closed {new Date(loop.closedAt).toLocaleDateString()} ({loop.closedReason})</p>{/if}
 					</div>
-					<h4>Thread description</h4>
-					<textarea
-						class="description-box"
-						bind:value={descriptionDraft}
-						placeholder="Add a simple description for this thread..."
-						oninput={() => (descriptionDirty = true)}
-						onblur={saveDescription}
-						onkeydown={(event) => {
-							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-								event.preventDefault();
-								event.stopPropagation();
-								saveDescription();
-							}
-						}}
-					></textarea>
-					{#if descriptionDirty}
-						<p class="description-hint">Unsaved changes</p>
-					{/if}
 				</section>
 
 				<section class="timeline-section">
@@ -371,21 +370,9 @@
 			<footer class="actions">
 				<div class="right" style="margin-left:auto;">
 					{#if loop.state === 'open'}
-						{#if !resolveMode}
-							<ActionBtn title="Close loop" color="rgba(255,255,255,0.7)" onClick={() => (resolveMode = true)}>
-								<span style="color:var(--text2)">Close loop</span>
-							</ActionBtn>
-						{:else}
-							<select bind:value={reason}>
-								<option value="done">done</option>
-								<option value="dropped">canceled</option>
-								<option value="delegated">delegated</option>
-								<option value="irrelevant">irrelevant</option>
-							</select>
-							<ActionBtn title="Close" color="#3d8a4a" onClick={resolveLoop}>
-								<Check size={14} />
-							</ActionBtn>
-						{/if}
+						<ActionBtn title="Close loop" color="color-mix(in srgb, var(--red) 14%, #fff)" onClick={resolveLoop}>
+							<span class="close-label">Close loop</span>
+						</ActionBtn>
 					{:else}
 						<ActionBtn title="Reopen loop" color="rgba(255,255,255,0.7)" onClick={reopenCurrentLoop}>
 							<span style="color:var(--text2)">Reopen loop</span>
@@ -452,13 +439,14 @@
 	.head {
 		padding: 8px 12px 10px;
 		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+		display: grid;
+		gap: 8px;
 	}
 
 	.head-top {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		margin-bottom: 8px;
 	}
 
 	.spacer {
@@ -467,12 +455,21 @@
 
 	.head-title {
 		margin: 0;
-		width: 100%;
+		width: min(100%, 420px);
+		justify-self: center;
 		font-family: var(--font-serif);
-		font-size: var(--text-xl);
+		font-size: clamp(20px, 5vw, 26px);
 		font-weight: var(--weight-normal);
-		line-height: var(--leading-tight);
-		letter-spacing: var(--tracking-tight);
+		line-height: 1.2;
+		letter-spacing: 0;
+		text-align: center;
+		text-wrap: balance;
+		overflow-wrap: anywhere;
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
 	.body {
@@ -484,8 +481,8 @@
 
 	.context {
 		display: grid;
-		gap: 8px;
-		padding-bottom: 4px;
+		gap: 0;
+		padding-bottom: 2px;
 		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 	}
 
@@ -663,8 +660,7 @@
 		margin-top: 8px;
 	}
 
-	.composer input,
-	select {
+	.composer input {
 		width: 100%;
 		height: 34px;
 		border-radius: 12px;
@@ -683,23 +679,26 @@
 		box-shadow: var(--ring-accent);
 	}
 
-	.description-box {
+	.head-description {
 		width: 100%;
-		min-height: 72px;
+		min-height: 56px;
+		max-height: 120px;
 		border-radius: 10px;
-		border: 1px solid rgba(0, 0, 0, 0.08);
-		padding: 10px;
-		font-size: 12.5px;
-		font-family: inherit;
-		line-height: var(--leading-normal);
-		background: rgba(255, 255, 255, 0.75);
+		border: 1px solid rgba(0, 0, 0, 0.06);
+		padding: 8px 10px;
+		font-size: 15px;
+		font-family: var(--font-serif);
+		line-height: 1.35;
+		color: var(--text2);
+		background: rgba(255, 255, 255, 0.6);
 		resize: vertical;
 	}
 
-	.description-box:focus {
+	.head-description:focus {
 		outline: none;
 		border-color: color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.05));
 		box-shadow: var(--ring-accent);
+		background: rgba(255, 255, 255, 0.78);
 	}
 
 	.description-hint {
@@ -713,13 +712,23 @@
 		border-top: 1px solid rgba(0, 0, 0, 0.04);
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: center;
 	}
 
 	.right {
 		display: inline-flex;
 		gap: 8px;
 		align-items: center;
+		justify-content: center;
+		width: 100%;
+	}
+
+	.close-label {
+		display: inline-block;
+		min-width: 168px;
+		text-align: center;
+		color: var(--red);
+		font-weight: var(--weight-medium);
 	}
 
 	.empty {

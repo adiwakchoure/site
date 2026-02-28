@@ -25,7 +25,7 @@ export const loopPeopleStore = fromLiveQuery(() => db.loopPeople.toArray());
 export const suggestionRecordsStore = fromLiveQuery(() => db.suggestions.toArray());
 export const pendingSyncStore = fromLiveQuery(() => db.syncQueue.count());
 
-export const activeFilter = writable<'open' | 'overdue' | 'all'>('open');
+export const activeFilter = writable<'open' | 'overdue' | 'closed' | 'all'>('open');
 export const loopSort = writable<'age' | 'priority' | 'deadline'>('age');
 export const suggestionsStore = writable<SuggestedAction[]>([]);
 export const syncState = writable<'synced' | 'syncing' | 'pending' | 'offline' | 'error'>('synced');

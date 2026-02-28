@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Check, RotateCcw } from 'lucide-svelte';
 	import type { Loop } from '$types/models';
 	import { ageInDays, isOverdue } from '$lib/utils';
 	import Badge from '$components/Badge.svelte';
@@ -6,15 +7,25 @@
 	let {
 		loop,
 		ghost = false,
-		onSelect
+		onSelect,
+		onSwipeAction = undefined,
+		stagger = 0
 	}: {
 		loop: Loop;
 		ghost?: boolean;
 		onSelect: (loopId: string) => void;
+		onSwipeAction?: ((loopId: string, action: 'close' | 'reopen') => void) | undefined;
+		stagger?: number;
 	} = $props();
 
 	let hover = $state(false);
 	let press = $state(false);
+	let swiping = $state(false);
+	let swipeX = $state(0);
+	let pointerId: number | null = null;
+	let startX = 0;
+	let startY = 0;
+	let suppressClick = false;
 	const overdue = $derived(isOverdue(loop.deadline, loop.closedAt));
 	const tone = $derived(loop.priority === 'P0' || overdue ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f');
 	const dueSoon = $derived.by(() => {
@@ -22,50 +33,128 @@
 		const diff = new Date(loop.deadline).getTime() - Date.now();
 		return diff <= 3 * 24 * 60 * 60 * 1000;
 	});
+	const swipeProgress = $derived(Math.min(1, Math.abs(swipeX) / 96));
+	const showCloseAffordance = $derived(loop.state === 'open' && swipeX < 0);
+	const showReopenAffordance = $derived(loop.state === 'closed' && swipeX > 0);
+
+	function resetSwipe() {
+		swiping = false;
+		swipeX = 0;
+		pointerId = null;
+	}
+
+	function onCardPointerDown(event: PointerEvent) {
+		if (ghost || event.button !== 0) return;
+		press = true;
+		pointerId = event.pointerId;
+		startX = event.clientX;
+		startY = event.clientY;
+		suppressClick = false;
+		(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
+	}
+
+	function onCardPointerMove(event: PointerEvent) {
+		if (pointerId !== event.pointerId) return;
+		const dx = event.clientX - startX;
+		const dy = event.clientY - startY;
+		const horizontalIntent = Math.abs(dx) > 18 && Math.abs(dx) > Math.abs(dy) * 1.4;
+		if (!swiping && horizontalIntent) {
+			swiping = true;
+			suppressClick = true;
+		}
+		if (!swiping) return;
+		event.preventDefault();
+		const clamp = Math.max(-96, Math.min(96, dx));
+		swipeX = clamp;
+	}
+
+	function onCardPointerEnd(event: PointerEvent) {
+		if (pointerId !== event.pointerId) return;
+		press = false;
+		if (swiping) {
+			const threshold = 62;
+			const shouldClose = loop.state === 'open' && swipeX <= -threshold;
+			const shouldReopen = loop.state === 'closed' && swipeX >= threshold;
+			if (shouldClose || shouldReopen) {
+				onSwipeAction?.(loop.id, shouldClose ? 'close' : 'reopen');
+			}
+		}
+		resetSwipe();
+	}
 </script>
 
-<button
-	type="button"
-	class="card"
+<div
+	class="card-shell"
 	class:ghost
-	class:hover={!ghost && hover}
-	class:press={!ghost && press}
-	style={`--tone:${tone};`}
-	onmouseenter={() => (hover = true)}
-	onmouseleave={() => {
-		hover = false;
-		press = false;
-	}}
-	onpointerdown={() => (press = true)}
-	onpointerup={() => (press = false)}
-	onclick={() => !ghost && onSelect(loop.id)}
-	disabled={ghost}
+	class:swiping={!ghost && swiping}
+	style={`--tone:${tone}; --swipe-x:${swipeX}px; --stagger:${stagger}ms; --swipe-progress:${swipeProgress};`}
 >
-	<div class="left"></div>
-	<div class="main">
-		<p class="title" class:closed={loop.state === 'closed'}>{loop.title}</p>
-		{#if !ghost}
-			<div class="meta">
-				<Badge label={loop.priority} color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'} />
-				<Badge label={loop.energy} color="#6e63a0" />
-				{#if overdue}<Badge label="over" color="#c0453a" />{/if}
-				{#if dueSoon}<Badge label={`due ${new Date(loop.deadline as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`} color="#a07c28" />{/if}
-			</div>
+	<div
+		class="swipe-affordance"
+		class:show-close={showCloseAffordance}
+		class:show-reopen={showReopenAffordance}
+		aria-hidden="true"
+	>
+		{#if showReopenAffordance}
+			<RotateCcw size={15} />
+		{:else}
+			<Check size={15} />
 		{/if}
 	</div>
-	{#if !ghost}
-		<div class="age" class:overdue-age={overdue}>{ageInDays(loop.createdAt)}d</div>
-	{/if}
-</button>
+	<button
+		type="button"
+		class="card"
+		class:hover={!ghost && hover}
+		class:press={!ghost && press}
+		class:swiping={!ghost && swiping}
+		onmouseenter={() => (hover = true)}
+		onmouseleave={() => {
+			hover = false;
+			press = false;
+			resetSwipe();
+		}}
+		onpointerdown={onCardPointerDown}
+		onpointermove={onCardPointerMove}
+		onpointerup={onCardPointerEnd}
+		onpointercancel={onCardPointerEnd}
+		onlostpointercapture={onCardPointerEnd}
+		onclick={() => {
+			if (!ghost && !suppressClick) onSelect(loop.id);
+			suppressClick = false;
+		}}
+		disabled={ghost}
+		aria-label={loop.title}
+	>
+		<div class="main">
+			<p class="title" class:closed={loop.state === 'closed'}>{loop.title}</p>
+			{#if !ghost}
+				<div class="meta">
+					<Badge label={loop.priority} color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'} />
+					<Badge label={loop.energy} color="#6e63a0" />
+					{#if overdue}<Badge label="over" color="#c0453a" />{/if}
+					{#if dueSoon}<Badge label={`due ${new Date(loop.deadline as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`} color="#a07c28" />{/if}
+				</div>
+			{/if}
+		</div>
+		{#if !ghost}
+			<div class="age" class:overdue-age={overdue}>{ageInDays(loop.createdAt)}d</div>
+		{/if}
+	</button>
+</div>
 
 <style>
+	.card-shell {
+		position: relative;
+		margin-bottom: 8px;
+		border-radius: 12px;
+	}
+
 	.card {
 		width: 100%;
 		display: grid;
-		grid-template-columns: 3px 1fr auto;
+		grid-template-columns: 1fr auto;
 		gap: 10px;
 		align-items: start;
-		margin-bottom: 8px;
 		padding: 12px 14px;
 		border-radius: 12px;
 		background: rgba(255, 255, 255, 0.5);
@@ -73,15 +162,63 @@
 		box-shadow: var(--shadow-sm);
 		transition: all var(--dur-base) var(--ease-spring);
 		animation: cardIn 0.24s var(--ease-spring);
+		animation-delay: var(--stagger, 0ms);
 		text-align: left;
+		position: relative;
+		overflow: hidden;
+		z-index: 2;
+		--lift-y: 0px;
+		--scale: 1;
+		transform: translateX(var(--swipe-x, 0px)) translateY(var(--lift-y)) scale(var(--scale));
+		touch-action: pan-y;
 	}
 
-	.left {
-		width: 3px;
-		height: 100%;
-		border-radius: 99px;
-		background: color-mix(in srgb, var(--tone) 40%, transparent);
-		transition: background var(--dur-fast) var(--ease);
+	.card::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		width: 22px;
+		background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 30%, transparent) 0%, transparent 100%);
+		opacity: 0.45;
+		pointer-events: none;
+		transition: opacity var(--dur-fast) var(--ease);
+	}
+
+	.card::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 10%, transparent);
+		opacity: 0.55;
+		pointer-events: none;
+		transition: opacity var(--dur-fast) var(--ease);
+	}
+
+	.swipe-affordance {
+		position: absolute;
+		top: 6px;
+		bottom: 6px;
+		right: 8px;
+		width: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 10px;
+		background: color-mix(in srgb, var(--red) 16%, transparent);
+		color: var(--red);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--dur-fast) var(--ease);
+	}
+
+	.swipe-affordance.show-reopen {
+		left: 8px;
+		right: auto;
+		background: color-mix(in srgb, var(--green) 16%, transparent);
+		color: var(--green);
 	}
 
 	.main {
@@ -124,29 +261,50 @@
 	.card.hover {
 		background: rgba(255, 255, 255, 0.8);
 		border-color: rgba(0, 0, 0, 0.08);
-		box-shadow: var(--shadow-md);
-		transform: translateY(-1px);
+		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.03);
+		--lift-y: -1px;
+		--scale: 1.003;
 	}
 
-	.card.hover .left,
-	.card.press .left {
-		background: color-mix(in srgb, var(--tone) 70%, transparent);
+	.card.hover::before,
+	.card.press::before {
+		opacity: 0.75;
+	}
+
+	.card.hover::after,
+	.card.press::after {
+		opacity: 1;
 	}
 
 	.card.press {
 		background: rgba(255, 255, 255, 0.8);
 		border-color: rgba(0, 0, 0, 0.08);
 		box-shadow: var(--shadow-sm);
-		transform: scale(0.99);
+		--lift-y: 0px;
+		--scale: 0.988;
 	}
 
-	.card.ghost {
+	.card.swiping {
+		transition: transform var(--dur-fast) var(--ease);
+	}
+
+	.card-shell.swiping .swipe-affordance {
+		opacity: max(0.12, var(--swipe-progress));
+	}
+
+	.card-shell.ghost .card {
 		opacity: 0.25;
 		border-color: rgba(0, 0, 0, 0.03);
-		pointer-events: none;
 	}
 
-	.card.ghost .left {
-		background: color-mix(in srgb, var(--tone) 20%, transparent);
+	.card-shell.ghost .card::before {
+		opacity: 0.2;
+	}
+
+	.card:focus-visible {
+		outline: none;
+		box-shadow:
+			var(--shadow-md),
+			0 0 0 2px color-mix(in srgb, var(--tone) 22%, transparent);
 	}
 </style>

@@ -1,15 +1,8 @@
 <script lang="ts">
-	import Empty from '$components/Empty.svelte';
-	import Pill from '$components/Pill.svelte';
-	import Badge from '$components/Badge.svelte';
-	import TaskDetail from '$components/TaskDetail.svelte';
-	import { eventsStore, loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
+	import { loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
 	import { ageInDays } from '$lib/utils';
-	import type { LoopEvent } from '$types/models';
 
-	let tab = $state<'insights' | 'archive'>('insights');
 	const loops = $derived($loopsStore ?? []);
-	const events = $derived(($eventsStore ?? []) as LoopEvent[]);
 	const links = $derived($loopPeopleStore ?? []);
 	const people = $derived($peopleStore ?? []);
 	const closed = $derived(loops.filter((loop) => loop.state === 'closed'));
@@ -24,10 +17,6 @@
 			)
 		: 0);
 	const oldestOpen = $derived([...open].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))[0] ?? null);
-	let selectedTaskId = $state<string | null>(null);
-	const selectedTask = $derived(loops.find((loop) => loop.id === selectedTaskId) ?? null);
-	const selectedEvents = $derived(events.filter((evt) => evt.loopId === selectedTaskId));
-
 	const ageBuckets = $derived.by(() => {
 		const buckets = { lt7: 0, lt14: 0, lt30: 0, gt30: 0 };
 		for (const loop of open) {
@@ -57,108 +46,69 @@
 	});
 </script>
 
-<section class="tabs-wrap">
-	<div class="tabs">
-		<Pill label="Insights" active={tab === 'insights'} onClick={() => (tab = 'insights')} />
-		<Pill label="Archive" active={tab === 'archive'} onClick={() => (tab = 'archive')} />
-	</div>
+<section class="grid">
+	<article class="stat">
+		<h3>Open</h3>
+		<p style="color:var(--accent)">{open.length}</p>
+	</article>
+	<article class="stat">
+		<h3>Overdue</h3>
+		<p style="color:var(--red)">{overdue.length}</p>
+	</article>
+	<article class="stat">
+		<h3>Completion</h3>
+		<p style="color:var(--green)">{keptRate}%</p>
+	</article>
+	<article class="stat">
+		<h3>Avg age</h3>
+		<p style="color:var(--purple)">{avgLifetime}d</p>
+	</article>
 </section>
-
-{#if tab === 'insights'}
-	<section class="grid">
-		<article class="stat">
-			<h3>Open</h3>
-			<p style="color:var(--accent)">{open.length}</p>
-		</article>
-		<article class="stat">
-			<h3>Overdue</h3>
-			<p style="color:var(--red)">{overdue.length}</p>
-		</article>
-		<article class="stat">
-			<h3>Completion</h3>
-			<p style="color:var(--green)">{keptRate}%</p>
-		</article>
-		<article class="stat">
-			<h3>Avg age</h3>
-			<p style="color:var(--purple)">{avgLifetime}d</p>
-		</article>
-	</section>
-	{#if oldestOpen}
-		<article class="oldest">
-			<h4>Oldest open</h4>
-			<strong>{oldestOpen.title}</strong>
-			<span>{ageInDays(oldestOpen.createdAt)}d</span>
-		</article>
-	{/if}
-	<section class="charts">
-		<article class="chart-card">
-			<h4>Age distribution</h4>
-			<div class="bars">
-				<div style={`--h:${(ageBuckets.lt7 / Math.max(1, open.length)) * 100}%`}><span>&lt;7d</span></div>
-				<div style={`--h:${(ageBuckets.lt14 / Math.max(1, open.length)) * 100}%`}><span>7-14</span></div>
-				<div style={`--h:${(ageBuckets.lt30 / Math.max(1, open.length)) * 100}%`}><span>14-30</span></div>
-				<div style={`--h:${(ageBuckets.gt30 / Math.max(1, open.length)) * 100}%`}><span>30+</span></div>
-			</div>
-		</article>
-		<article class="chart-card">
-			<h4>Opened vs Closed</h4>
-			<div class="line-grid">
-				{#each [0, 1, 2, 3] as n}
-					<div class="point">
-						<i class="open-dot" style={`--y:${(open.length / 12 + (n % 2) * 0.12) * 100}%`}></i>
-						<i class="closed-dot" style={`--y:${(closed.length / 12 + ((n + 1) % 2) * 0.1) * 100}%`}></i>
-					</div>
-				{/each}
-			</div>
-		</article>
-	</section>
+{#if oldestOpen}
+	<article class="oldest">
+		<h4>Oldest open</h4>
+		<strong>{oldestOpen.title}</strong>
+		<span>{ageInDays(oldestOpen.createdAt)}d</span>
+	</article>
+{/if}
+<section class="charts">
 	<article class="chart-card">
-		<h4>Contended resources</h4>
-		{#if contention.length === 0}
-			<p class="empty-inline">No contention yet.</p>
-		{:else}
-			{#each contention as row}
-				<div class="resource-row">
-					<span>{row.person}</span>
-					<div class="track"><div style={`width:${(row.count / contention[0].count) * 100}%`}></div></div>
-					<small>{row.count}</small>
+		<h4>Age distribution</h4>
+		<div class="bars">
+			<div style={`--h:${(ageBuckets.lt7 / Math.max(1, open.length)) * 100}%`}><span>&lt;7d</span></div>
+			<div style={`--h:${(ageBuckets.lt14 / Math.max(1, open.length)) * 100}%`}><span>7-14</span></div>
+			<div style={`--h:${(ageBuckets.lt30 / Math.max(1, open.length)) * 100}%`}><span>14-30</span></div>
+			<div style={`--h:${(ageBuckets.gt30 / Math.max(1, open.length)) * 100}%`}><span>30+</span></div>
+		</div>
+	</article>
+	<article class="chart-card">
+		<h4>Opened vs Closed</h4>
+		<div class="line-grid">
+			{#each [0, 1, 2, 3] as n}
+				<div class="point">
+					<i class="open-dot" style={`--y:${(open.length / 12 + (n % 2) * 0.12) * 100}%`}></i>
+					<i class="closed-dot" style={`--y:${(closed.length / 12 + ((n + 1) % 2) * 0.1) * 100}%`}></i>
 				</div>
 			{/each}
-		{/if}
+		</div>
 	</article>
-{:else}
-	<section class="list">
-		{#if closed.length === 0}
-			<Empty label="No archive yet" />
-		{:else}
-			{#each [...closed].sort((a, b) => +new Date(b.closedAt ?? b.updatedAt) - +new Date(a.closedAt ?? a.updatedAt)) as loop, i (loop.id)}
-				<button type="button" class="archive-item" style={`animation-delay:${i * 15}ms`} onclick={() => (selectedTaskId = loop.id)}>
-					<h4>{loop.title}</h4>
-					<div class="archive-meta">
-						<Badge label={loop.closedReason ?? 'closed'} color="#3d8a4a" />
-						<span>{ageInDays(loop.createdAt)}d life</span>
-					</div>
-				</button>
-			{/each}
-		{/if}
-	</section>
-{/if}
-
-<TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
+</section>
+<article class="chart-card">
+	<h4>Contended resources</h4>
+	{#if contention.length === 0}
+		<p class="empty-inline">No contention yet.</p>
+	{:else}
+		{#each contention as row}
+			<div class="resource-row">
+				<span>{row.person}</span>
+				<div class="track"><div style={`width:${(row.count / contention[0].count) * 100}%`}></div></div>
+				<small>{row.count}</small>
+			</div>
+		{/each}
+	{/if}
+</article>
 
 <style>
-	.tabs-wrap {
-		margin-bottom: 12px;
-	}
-
-	.tabs {
-		display: inline-flex;
-		gap: 2px;
-		padding: 2px;
-		border-radius: 10px;
-		background: rgba(0, 0, 0, 0.025);
-	}
-
 	.grid {
 		display: flex;
 		gap: 8px;
@@ -325,58 +275,12 @@
 		color: var(--accent);
 	}
 
-	.list {
-		display: grid;
-		gap: 8px;
-	}
-
-	.archive-item {
-		width: 100%;
-		padding: 12px;
-		border-radius: 12px;
-		opacity: 0.5;
-		transition: all 0.15s var(--ease);
-		animation: cardIn 0.2s var(--ease-spring);
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		box-shadow: var(--shadow-sm);
-		text-align: left;
-	}
-
-	.archive-item:hover {
-		opacity: 0.8;
-		background: rgba(255, 255, 255, 0.4);
-	}
-
 	h3 {
 		margin: 0;
 		font-size: 9px;
 		color: var(--text3);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps);
-	}
-
-	.list h4 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-size: 15px;
-		font-weight: var(--weight-normal);
-		line-height: var(--leading-tight);
-		letter-spacing: var(--tracking-tight);
-		color: var(--text);
-	}
-
-	.archive-meta {
-		margin-top: 5px;
-		display: inline-flex;
-		gap: 6px;
-		align-items: center;
-	}
-
-	.archive-meta span {
-		font-size: 10px;
-		color: var(--text3);
-		font-family: var(--font-mono);
 	}
 
 	.empty-inline {

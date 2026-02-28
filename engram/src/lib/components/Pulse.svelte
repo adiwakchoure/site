@@ -14,8 +14,8 @@
 	let host: HTMLDivElement | null = null;
 	let dragging = $state(false);
 	let scrubY = $state(0);
-	const width = 48;
-	const innerWidth = 42;
+	const width = 44;
+	const innerWidth = 38;
 
 	const series = $derived.by(() => {
 		const dates = [...new Set(loops.map((loop) => new Date(loop.createdAt).toISOString()))]
@@ -147,17 +147,17 @@
 			<stop offset="0%" stop-color="rgba(110,99,160,0.02)" />
 			<stop offset="100%" stop-color="rgba(110,99,160,0.2)" />
 		</linearGradient>
-		<line x1="0.5" y1="0" x2="0.5" y2={height} stroke="rgba(0,0,0,0.3)" stroke-width="0.5" />
+		<line x1="0.5" y1="0" x2="0.5" y2={height} stroke="rgba(0,0,0,0.16)" stroke-width="0.5" />
 		<path d={areaPath} fill="url(#af)" opacity={dragging ? 0.25 : 1} />
 		<path d={overdueArea} fill="url(#of)" opacity={dragging ? 0.2 : 1} />
-		<path d={activePath} fill="none" stroke="#a0714a" stroke-width="1" opacity={dragging ? 0.2 : 0.5} />
+		<path d={activePath} fill="none" stroke="#a0714a" stroke-width="0.9" opacity={dragging ? 0.22 : 0.42} />
 		{#if dragging}
 			<clipPath id="scrubWindow">
 				<rect x="0" y={Math.max(0, scrubY - 30)} width={width} height="60" rx="6" />
 			</clipPath>
 			<path d={areaPath} fill="url(#sf)" clip-path="url(#scrubWindow)" opacity="0.75" />
 		{/if}
-		<circle cx="2.5" cy={height - 4} r="2.5" fill="#a0714a" opacity="0.6" />
+		<circle cx="2.5" cy={height - 4} r="2.3" fill="#a0714a" opacity="0.46" />
 		<circle class="pulse-ring" cx="2.5" cy={height - 4} r="5" fill="rgba(160,113,74,0.08)" />
 		{#if dragging}
 			<line x1="0" y1={scrubY} x2={width} y2={scrubY} stroke="#6e63a0" stroke-width="1.2" opacity="0.7" />

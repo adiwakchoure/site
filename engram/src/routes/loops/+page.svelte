@@ -5,16 +5,20 @@
 	import TaskDetail from '$components/TaskDetail.svelte';
 	import Pulse from '$components/Pulse.svelte';
 	import Empty from '$components/Empty.svelte';
+	import Toast from '$components/Toast.svelte';
+	import { closeLoop, reopenLoop } from '$db/local';
 	import { activeFilter, eventsStore, loopSort, loopsStore } from '$stores/app';
 	import { isOverdue } from '$lib/utils';
 	import type { Loop, LoopEvent } from '$types/models';
 
-	const filters: Array<'open' | 'overdue' | 'all'> = ['open', 'overdue', 'all'];
+	const filters: Array<'open' | 'overdue' | 'closed' | 'all'> = ['open', 'overdue', 'closed', 'all'];
 
 	let selectedTaskId = $state<string | null>(null);
 	let listHost: HTMLDivElement | null = null;
 	let listHeight = $state(360);
 	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
+	let toast = $state<string | null>(null);
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const loops = $derived(($loopsStore ?? []) as Loop[]);
 
@@ -33,12 +37,14 @@
 						if (!openAt) return false;
 						return Boolean(loop.deadline && new Date(loop.deadline).getTime() < at);
 					}
+					if ($activeFilter === 'closed') return !openAt;
 					return true;
 				});
 		} else {
 			base = base.filter((loop) => {
 				if ($activeFilter === 'open') return loop.state === 'open';
 				if ($activeFilter === 'overdue') return loop.state === 'open' && isOverdue(loop.deadline, loop.closedAt);
+				if ($activeFilter === 'closed') return loop.state === 'closed';
 				return true;
 			});
 		}
@@ -54,6 +60,7 @@
 	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedTaskId));
 	const openCount = $derived(loops.filter((loop) => loop.state === 'open').length);
 	const overdueCount = $derived(loops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
+	const closedCount = $derived(loops.filter((loop) => loop.state === 'closed').length);
 
 	$effect(() => {
 		if (!listHost) return;
@@ -63,6 +70,28 @@
 		observer.observe(listHost);
 		return () => observer.disconnect();
 	});
+
+	function showToast(message: string) {
+		toast = message;
+		if (toastTimer) clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => {
+			toast = null;
+		}, 2200);
+	}
+
+	async function onSwipeAction(loopId: string, action: 'close' | 'reopen') {
+		try {
+			if (action === 'close') {
+				await closeLoop(loopId, 'done');
+				showToast('Loop closed');
+				return;
+			}
+			await reopenLoop(loopId);
+			showToast('Loop reopened');
+		} catch {
+			showToast(action === 'close' ? 'Could not close loop' : 'Could not reopen loop');
+		}
+	}
 </script>
 
 <section class="head-controls">
@@ -76,7 +105,15 @@
 		<div class="filter-wrap">
 			{#each filters as filter}
 				<Pill
-					label={filter === 'open' ? `Open (${openCount})` : filter === 'overdue' ? `Overdue (${overdueCount})` : 'All'}
+					label={
+						filter === 'open'
+							? `Open (${openCount})`
+							: filter === 'overdue'
+								? `Overdue (${overdueCount})`
+								: filter === 'closed'
+									? `Closed (${closedCount})`
+									: 'All'
+					}
 					active={$activeFilter === filter}
 					onClick={() => activeFilter.set(filter)}
 				/>
@@ -96,20 +133,27 @@
 			{#if sorted.length === 0}
 				<Empty label="No loops in this view" icon={true} />
 			{:else}
-				{#each sorted as loop (loop.id)}
+				{#each sorted as loop, index (loop.id)}
 					<LoopCard
 						loop={loop}
 						ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
+						stagger={Math.min(index * 18, 180)}
 						onSelect={(id) => (selectedTaskId = id)}
+						onSwipeAction={onSwipeAction}
 					/>
 				{/each}
 			{/if}
 		</div>
 	</div>
-	<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
+	<div class="pulse-wrap">
+		<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
+	</div>
 </section>
 
 <TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
+{#if toast}
+	<Toast message={toast} />
+{/if}
 
 <style>
 	.head-controls {
@@ -136,19 +180,26 @@
 
 	.sorts button {
 		border: 0;
-		background: transparent;
+		background: rgba(255, 255, 255, 0.35);
 		border-radius: 6px;
 		padding: 4px 7px;
 		font-size: var(--text-xs);
 		font-weight: var(--weight-light);
 		color: var(--text4);
-		transition: all 0.15s var(--ease);
+		transition: all 0.18s var(--ease-spring);
 	}
 
 	.sorts button.active {
-		background: rgba(0, 0, 0, 0.04);
+		background: rgba(255, 255, 255, 0.92);
 		color: var(--text2);
 		font-weight: var(--weight-normal);
+		box-shadow: var(--shadow-sm);
+		transform: translateY(-1px);
+	}
+
+	.sorts button:hover {
+		background: rgba(255, 255, 255, 0.8);
+		color: var(--text2);
 	}
 
 	.travel-banner {
@@ -173,7 +224,7 @@
 	.layout {
 		display: grid;
 		grid-template-columns: 1fr 48px;
-		gap: 6px;
+		gap: 4px;
 		min-height: 0;
 		height: calc(100% - 44px);
 	}
@@ -186,5 +237,15 @@
 
 	.list {
 		min-height: 100%;
+	}
+
+	.pulse-wrap {
+		opacity: 0.58;
+		filter: saturate(0.8);
+		transition: opacity var(--dur-base) var(--ease);
+	}
+
+	.pulse-wrap:hover {
+		opacity: 0.82;
 	}
 </style>
