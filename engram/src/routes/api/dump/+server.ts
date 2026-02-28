@@ -3,21 +3,54 @@ import { env as privateEnv } from '$env/dynamic/private';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import type { SuggestedAction } from '$types/models';
+import { ensureD1Schema } from '$db/bootstrap';
 
 const payloadSchema = z.object({
 	text: z.string().min(1)
 });
 
+const suggestionSchema = z.object({
+	action: z.enum(['open_loop', 'close_loop', 'add_note', 'update_loop', 'create_person', 'create_project']),
+	loopId: z.string().optional(),
+	title: z.string().optional(),
+	priority: z.enum(['P0', 'P1', 'P2']).optional(),
+	energy: z.enum(['active', 'waiting', 'someday']).optional(),
+	deadline: z.string().nullable().optional(),
+	project: z.string().nullable().optional(),
+	people: z.array(z.object({ name: z.string(), role: z.enum(['involved', 'waiting_on', 'delegated_to']).optional() })).optional(),
+	tags: z.array(z.string()).optional(),
+	reason: z.enum(['done', 'dropped', 'delegated', 'irrelevant']).optional(),
+	text: z.string().optional(),
+	changes: z.record(z.string(), z.string().nullable()).optional(),
+	name: z.string().optional(),
+	rel: z.string().optional(),
+	color: z.string().optional(),
+	confidence: z.enum(['high', 'medium', 'low']).optional()
+});
+
+const suggestionArraySchema = z.array(suggestionSchema);
+
 function heuristicSuggestions(text: string): SuggestedAction[] {
 	const normalized = text.trim();
-	const lower = normalized.toLowerCase();
-	if (/cancel|scratch|kill|nevermind|never mind|forget it/.test(lower)) {
-		return [{ action: 'close_loop', reason: 'dropped', confidence: 'medium' }];
+	const parts = normalized
+		.split(/\n+|[.;](?=\s|$)/g)
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.slice(0, 8);
+	const suggestions: SuggestedAction[] = [];
+	for (const part of parts) {
+		const lower = part.toLowerCase();
+		if (/cancel|scratch|kill|nevermind|never mind|forget it/.test(lower)) {
+			suggestions.push({ action: 'close_loop', title: part, reason: 'dropped', confidence: 'medium' });
+			continue;
+		}
+		if (/note|status|update/.test(lower)) {
+			suggestions.push({ action: 'add_note', text: part.replace(/^note[: ]*/i, ''), confidence: 'medium' });
+			continue;
+		}
+		suggestions.push({ action: 'open_loop', title: part, priority: 'P1', energy: 'active', confidence: 'medium' });
 	}
-	if (/note|status|update/.test(lower)) {
-		return [{ action: 'add_note', text: normalized.replace(/^note[: ]*/i, ''), confidence: 'medium' }];
-	}
-	return [{ action: 'open_loop', title: normalized, priority: 'P1', energy: 'active', confidence: 'medium' }];
+	return suggestions.length ? suggestions : [{ action: 'open_loop', title: normalized, priority: 'P1', energy: 'active', confidence: 'medium' }];
 }
 
 function parseModelJson(raw: string): SuggestedAction[] | null {
@@ -35,6 +68,39 @@ function parseModelJson(raw: string): SuggestedAction[] | null {
 			return null;
 		}
 	}
+}
+
+function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallbackText: string): SuggestedAction[] {
+	if (!input || input.length === 0) {
+		return [{ action: 'open_loop', title: fallbackText, priority: 'P1', energy: 'active', confidence: 'low' }];
+	}
+	const parsed = suggestionArraySchema.safeParse(input);
+	const base = parsed.success ? parsed.data : input;
+	const cleaned: SuggestedAction[] = [];
+	for (const item of base) {
+		const confidence: SuggestedAction['confidence'] = item.confidence ?? 'medium';
+		const people = item.people?.map((person) => ({ name: person.name, role: person.role ?? 'involved' }));
+		if (item.action === 'open_loop') {
+			const title = item.title?.trim();
+			if (!title) continue;
+			cleaned.push({ ...item, title, people, priority: item.priority ?? 'P1', energy: item.energy ?? 'active', confidence });
+			continue;
+		}
+		if (item.action === 'add_note') {
+			const noteText = item.text?.trim() || item.title?.trim();
+			if (!noteText) continue;
+			cleaned.push({ ...item, people, text: noteText, confidence });
+			continue;
+		}
+		if (item.action === 'close_loop' || item.action === 'update_loop') {
+			if (!item.loopId && !item.title) continue;
+			cleaned.push({ ...item, people, confidence });
+			continue;
+		}
+		if ((item.action === 'create_person' || item.action === 'create_project') && !item.name) continue;
+		cleaned.push({ ...item, people, confidence });
+	}
+	return cleaned.length ? cleaned : [{ action: 'open_loop', title: fallbackText, priority: 'P1', energy: 'active', confidence: 'low' }];
 }
 
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
@@ -135,6 +201,7 @@ async function loadActiveContext(env: App.Platform['env']) {
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
+	await ensureD1Schema(env as App.Platform['env'] | undefined);
 	const groqApiKey = resolveGroqApiKey(env as App.Platform['env'] | undefined);
 	const aiAvailable = Boolean(groqApiKey);
 	const contentType = request.headers.get('content-type') ?? '';
@@ -187,7 +254,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			source,
 			aiAvailable: false,
 			active: { openCount: context.openCount, overdueCount: context.overdueCount },
-			suggestions: fallback
+			suggestions: normalizeSuggestions(fallback, text)
 		});
 	}
 
@@ -208,7 +275,7 @@ Each object:
   "loopId": "existing loop id when relevant",
   "reason": "done" | "dropped" | "delegated" | "irrelevant",
   "changes": { "priority": "P0" },
-  "text": "for add_note",
+  "text": "for add_note (timeline update entry)",
   "name": "for create_person/create_project",
   "rel": "for create_person",
   "color": "#a0714a",
@@ -231,6 +298,7 @@ RULES:
 - If text says cancel/scratch/kill/nevermind -> close_loop reason dropped.
 - If text says delegated/handed to -> close_loop reason delegated.
 - If text mentions existing loop, prefer update_loop/close_loop/add_note over open_loop.
+- Use add_note for progress updates/history entries on an existing loop.
 - Infer person/project names by fuzzy match with known lists.
 - Mentioned unknown people/projects should include create_person/create_project.
 Text: ${text}
@@ -250,7 +318,7 @@ Text: ${text}
 			source,
 			aiAvailable: true,
 			active: { openCount: context.openCount, overdueCount: context.overdueCount },
-			suggestions: suggestions ?? [{ action: 'open_loop', title: text, priority: 'P1', energy: 'active', confidence: 'low' }]
+			suggestions: normalizeSuggestions(suggestions ?? fallback, text)
 		});
 	} catch {
 		return json({
@@ -258,7 +326,7 @@ Text: ${text}
 			source,
 			aiAvailable: true,
 			active: { openCount: context.openCount, overdueCount: context.overdueCount },
-			suggestions: [{ action: 'open_loop', title: text, priority: 'P1', energy: 'active', confidence: 'low' }]
+			suggestions: normalizeSuggestions(fallback, text)
 		});
 	}
 };

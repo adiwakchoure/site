@@ -3,7 +3,8 @@ export type LoopEnergy = 'active' | 'waiting' | 'someday';
 export type LoopPriority = 'P0' | 'P1' | 'P2';
 export type ClosedReason = 'done' | 'dropped' | 'delegated' | 'irrelevant';
 export type LoopPersonRole = 'involved' | 'waiting_on' | 'delegated_to';
-export type EventKind = 'created' | 'closed' | 'reopened' | 'updated' | 'noted';
+export type EventKind = 'created' | 'closed' | 'reopened' | 'updated' | 'noted' | 'deleted';
+export type SuggestionStatus = 'pending' | 'accepted' | 'dismissed';
 
 export interface Loop {
 	id: string;
@@ -19,6 +20,7 @@ export interface Loop {
 	tags: string;
 	createdAt: string;
 	closedAt: string | null;
+	archivedAt: string | null;
 	updatedAt: string;
 }
 
@@ -29,6 +31,7 @@ export interface LoopEvent {
 	body: string | null;
 	meta: string | null;
 	dumpId: string | null;
+	sequence: number;
 	createdAt: string;
 }
 
@@ -57,13 +60,26 @@ export interface Project {
 export interface Dump {
 	id: string;
 	raw: string;
+	transcript: string | null;
+	source: 'text' | 'voice';
 	processed: number;
 	createdAt: string;
+}
+
+export interface SuggestionRecord {
+	id: string;
+	dumpId: string | null;
+	action: SuggestionAction;
+	payload: string;
+	status: SuggestionStatus;
+	createdAt: string;
+	resolvedAt: string | null;
 }
 
 export type SuggestionAction = 'open_loop' | 'close_loop' | 'add_note' | 'update_loop' | 'create_person' | 'create_project';
 
 export interface SuggestedAction {
+	suggestionId?: string;
 	action: SuggestionAction;
 	loopId?: string;
 	title?: string;
@@ -83,10 +99,11 @@ export interface SuggestedAction {
 }
 
 export type SyncTable = 'loops' | 'events' | 'people' | 'loop_person' | 'projects' | 'dumps';
+export type SyncTableV2 = SyncTable | 'suggestions';
 
 export interface SyncOp {
 	seq?: number;
-	table: SyncTable;
+	table: SyncTableV2;
 	op: 'put' | 'delete';
 	id: string;
 	data?: Record<string, unknown>;

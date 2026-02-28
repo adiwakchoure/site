@@ -1,72 +1,150 @@
 <script lang="ts">
 	import type { Loop } from '$types/models';
 	import { ageInDays, isOverdue } from '$lib/utils';
+	import Badge from '$components/Badge.svelte';
 
-	let { loop, onClose, onSelect }: { loop: Loop; onClose: (loopId: string) => void; onSelect: (loopId: string) => void } = $props();
+	let {
+		loop,
+		ghost = false,
+		onSelect
+	}: {
+		loop: Loop;
+		ghost?: boolean;
+		onSelect: (loopId: string) => void;
+	} = $props();
+
+	let hover = $state(false);
+	let press = $state(false);
+	const overdue = $derived(isOverdue(loop.deadline, loop.closedAt));
+	const tone = $derived(loop.priority === 'P0' || overdue ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f');
+	const dueSoon = $derived.by(() => {
+		if (!loop.deadline || loop.closedAt || overdue) return false;
+		const diff = new Date(loop.deadline).getTime() - Date.now();
+		return diff <= 3 * 24 * 60 * 60 * 1000;
+	});
 </script>
 
-<article class="card" style={`--tone:${loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#6e63a0'}`}>
-	<div class="row">
-		<button type="button" class="title" onclick={() => onSelect(loop.id)}>{loop.title}</button>
-		{#if loop.state === 'open'}
-			<button type="button" class="resolve" onclick={() => onClose(loop.id)}>Resolve</button>
+<button
+	type="button"
+	class="card"
+	class:ghost
+	class:hover={!ghost && hover}
+	class:press={!ghost && press}
+	style={`--tone:${tone};`}
+	onmouseenter={() => (hover = true)}
+	onmouseleave={() => {
+		hover = false;
+		press = false;
+	}}
+	onpointerdown={() => (press = true)}
+	onpointerup={() => (press = false)}
+	onclick={() => !ghost && onSelect(loop.id)}
+	disabled={ghost}
+>
+	<div class="left"></div>
+	<div class="main">
+		<p class="title" class:closed={loop.state === 'closed'}>{loop.title}</p>
+		{#if !ghost}
+			<div class="meta">
+				<Badge label={loop.priority} color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'} />
+				<Badge label={loop.energy} color="#6e63a0" />
+				{#if overdue}<Badge label="over" color="#c0453a" />{/if}
+				{#if dueSoon}<Badge label={`due ${new Date(loop.deadline as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`} color="#a07c28" />{/if}
+			</div>
 		{/if}
 	</div>
-	<div class="meta">
-		<span class="badge">{loop.priority}</span>
-		<span class="badge">{loop.energy}</span>
-		<span class="mono">{ageInDays(loop.createdAt)}d</span>
-		{#if isOverdue(loop.deadline, loop.closedAt)}
-			<span class="mono overdue">overdue</span>
-		{/if}
-	</div>
-</article>
+	{#if !ghost}
+		<div class="age" class:overdue-age={overdue}>{ageInDays(loop.createdAt)}d</div>
+	{/if}
+</button>
 
 <style>
 	.card {
-		background: rgba(255, 255, 255, 0.68);
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		border-left: 4px solid var(--tone);
+		width: 100%;
+		display: grid;
+		grid-template-columns: 3px 1fr auto;
+		gap: 10px;
+		align-items: start;
+		margin-bottom: 6px;
+		padding: 12px 14px;
 		border-radius: 12px;
-		padding: 0.75rem;
-	}
-	.row {
-		display: flex;
-		justify-content: space-between;
-		gap: 0.5rem;
-	}
-	.title {
-		border: 0;
-		background: transparent;
-		padding: 0;
-		font: inherit;
+		background: rgba(255, 255, 255, 0.45);
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		box-shadow: var(--shadow-sm);
+		transition: all 0.2s var(--ease-spring);
+		animation: cardIn 0.24s var(--ease-spring);
 		text-align: left;
 	}
-	.resolve {
-		border: 0;
-		background: rgba(160, 113, 74, 0.14);
-		color: #6b472d;
-		padding: 0.3rem 0.55rem;
-		border-radius: 999px;
+
+	.left {
+		width: 3px;
+		height: 100%;
+		border-radius: 99px;
+		background: color-mix(in srgb, var(--tone) 40%, transparent);
+		transition: background 0.2s var(--ease);
 	}
+
+	.main {
+		min-width: 0;
+	}
+
+	.title {
+		margin: 0;
+		font-size: 13.5px;
+		font-weight: 400;
+		line-height: 1.3;
+		color: var(--text);
+	}
+
+	.title.closed {
+		text-decoration: line-through;
+		color: color-mix(in srgb, var(--text4) 40%, transparent);
+	}
+
 	.meta {
-		margin-top: 0.5rem;
+		margin-top: 6px;
 		display: flex;
-		gap: 0.35rem;
+		flex-wrap: wrap;
+		gap: 3px;
 		align-items: center;
 	}
-	.badge {
-		font-size: 0.7rem;
-		padding: 0.14rem 0.45rem;
-		border-radius: 999px;
-		background: rgba(0, 0, 0, 0.06);
-	}
-	.mono {
-		font-size: 0.72rem;
+
+	.age {
+		font-size: 11px;
 		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-		color: #5a5651;
+		color: var(--text3);
 	}
-	.overdue {
-		color: #c0453a;
+
+	.overdue-age {
+		color: var(--red);
+	}
+
+	.card.hover {
+		background: rgba(255, 255, 255, 0.8);
+		border-color: rgba(0, 0, 0, 0.08);
+		box-shadow: var(--shadow-md);
+		transform: translateY(-1px);
+	}
+
+	.card.hover .left,
+	.card.press .left {
+		background: color-mix(in srgb, var(--tone) 70%, transparent);
+	}
+
+	.card.press {
+		background: rgba(255, 255, 255, 0.8);
+		border-color: rgba(0, 0, 0, 0.08);
+		box-shadow: var(--shadow-sm);
+		transform: scale(0.99);
+	}
+
+	.card.ghost {
+		opacity: 0.25;
+		border-color: rgba(0, 0, 0, 0.03);
+		pointer-events: none;
+	}
+
+	.card.ghost .left {
+		background: color-mix(in srgb, var(--tone) 20%, transparent);
 	}
 </style>

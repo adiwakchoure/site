@@ -21,6 +21,7 @@ export const peopleStore = fromLiveQuery(() => db.people.toArray());
 export const projectsStore = fromLiveQuery(() => db.projects.toArray());
 export const dumpsStore = fromLiveQuery(() => db.dumps.toArray());
 export const loopPeopleStore = fromLiveQuery(() => db.loopPeople.toArray());
+export const suggestionRecordsStore = fromLiveQuery(() => db.suggestions.toArray());
 export const pendingSyncStore = fromLiveQuery(() => db.syncQueue.count());
 
 export const activeFilter = writable<'open' | 'overdue' | 'all'>('open');

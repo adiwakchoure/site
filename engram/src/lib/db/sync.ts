@@ -1,4 +1,5 @@
 import { db } from '$db/schema';
+import { browser } from '$app/environment';
 import type { SyncOp } from '$types/models';
 
 interface SyncResponse {
@@ -12,14 +13,16 @@ const TABLE_MAP = {
 	people: db.people,
 	projects: db.projects,
 	dumps: db.dumps,
+	suggestions: db.suggestions,
 	loop_person: db.loopPeople
 } as const;
 
 export async function syncNow() {
+	if (!browser) return;
 	const pending = await db.syncQueue.orderBy('seq').limit(200).toArray();
 	const lastSync = (await db.meta.get('lastSync'))?.value ?? new Date(0).toISOString();
 
-	const res = await fetch('/api/sync', {
+	const res = await window.fetch('/api/sync', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ lastSync, changes: pending })
@@ -30,7 +33,7 @@ export async function syncNow() {
 	const payload = (await res.json()) as SyncResponse;
 	await db.transaction(
 		'rw',
-		[db.syncQueue, db.meta, db.loops, db.events, db.people, db.projects, db.dumps, db.loopPeople],
+		[db.syncQueue, db.meta, db.loops, db.events, db.people, db.projects, db.dumps, db.suggestions, db.loopPeople],
 		async () => {
 			if (pending.length > 0) {
 				const seqs = pending.map((p) => p.seq).filter((v): v is number => typeof v === 'number');

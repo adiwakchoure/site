@@ -1,246 +1,190 @@
 <script lang="ts">
+	import { Clock } from 'lucide-svelte';
 	import LoopCard from '$components/LoopCard.svelte';
-	import { addNote, closeLoop, createLoop, reopenLoop, updateLoop } from '$db/local';
-	import { activeFilter, eventsStore, loopSort, loopsStore, peopleStore, projectsStore } from '$stores/app';
+	import Pill from '$components/Pill.svelte';
+	import ThreadDetail from '$components/ThreadDetail.svelte';
+	import Pulse from '$components/Pulse.svelte';
+	import Empty from '$components/Empty.svelte';
+	import { activeFilter, eventsStore, loopSort, loopsStore } from '$stores/app';
 	import { isOverdue } from '$lib/utils';
-	import type { Loop } from '$types/models';
-	import { page } from '$app/stores';
+	import type { Loop, LoopEvent } from '$types/models';
 
-	const filters: Array<{ key: 'open' | 'overdue' | 'all'; label: string }> = [
-		{ key: 'open', label: 'Open' },
-		{ key: 'overdue', label: 'Overdue' },
-		{ key: 'all', label: 'All' }
-	];
+	const filters: Array<'open' | 'overdue' | 'all'> = ['open', 'overdue', 'all'];
 
 	let selectedLoopId = $state<string | null>(null);
-	let showManual = $derived($page.url.searchParams.get('manual') === '1');
-	let manual = $state({
-		title: '',
-		priority: 'P1' as 'P0' | 'P1' | 'P2',
-		energy: 'active' as 'active' | 'waiting' | 'someday',
-		deadline: '',
-		projectId: '',
-		tags: ''
-	});
-	let noteText = $state('');
+	let listHost: HTMLDivElement | null = null;
+	let listHeight = $state(360);
+	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
 
-	const filteredLoops = $derived((($loopsStore ?? []) as Loop[]).filter((loop) => {
-		if ($activeFilter === 'open') return loop.state === 'open';
-		if ($activeFilter === 'overdue') return loop.state === 'open' && isOverdue(loop.deadline, loop.closedAt);
-		return true;
-	}));
+	const loops = $derived(($loopsStore ?? []) as Loop[]);
 
-	const sorted = $derived([...filteredLoops].sort((a, b) => {
+	const sorted = $derived.by(() => {
+		const at = scrub?.date?.getTime() ?? null;
+		let base = [...loops];
+		if (at !== null) {
+			base = base
+				.filter((loop) => new Date(loop.createdAt).getTime() <= at)
+				.filter((loop) => {
+					if ($activeFilter === 'all') return true;
+					const closedAt = loop.closedAt ? new Date(loop.closedAt).getTime() : Number.POSITIVE_INFINITY;
+					const openAt = closedAt > at;
+					if ($activeFilter === 'open') return openAt;
+					if ($activeFilter === 'overdue') {
+						if (!openAt) return false;
+						return Boolean(loop.deadline && new Date(loop.deadline).getTime() < at);
+					}
+					return true;
+				});
+		} else {
+			base = base.filter((loop) => {
+				if ($activeFilter === 'open') return loop.state === 'open';
+				if ($activeFilter === 'overdue') return loop.state === 'open' && isOverdue(loop.deadline, loop.closedAt);
+				return true;
+			});
+		}
+
+		return base.sort((a, b) => {
 		if ($loopSort === 'priority') return a.priority.localeCompare(b.priority);
 		if ($loopSort === 'deadline') return (a.deadline ?? '9999').localeCompare(b.deadline ?? '9999');
-		return +new Date(b.updatedAt) - +new Date(a.updatedAt);
-	}));
+			return +new Date(b.updatedAt) - +new Date(a.updatedAt);
+		});
+	});
 
 	const selected = $derived(sorted.find((loop) => loop.id === selectedLoopId) ?? null);
-	const selectedEvents = $derived((($eventsStore ?? []) as Array<{ loopId: string | null; body: string | null; kind: string; createdAt: string }>).filter(
-		(evt) => evt.loopId === selectedLoopId
-	));
+	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedLoopId));
+	const openCount = $derived(loops.filter((loop) => loop.state === 'open').length);
+	const overdueCount = $derived(loops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
-	async function submitManual() {
-		if (!manual.title.trim()) return;
-		await createLoop({
-			title: manual.title.trim(),
-			priority: manual.priority,
-			energy: manual.energy,
-			deadline: manual.deadline || null,
-			projectId: manual.projectId || null,
-			tags: manual.tags
-				.split(',')
-				.map((v) => v.trim())
-				.filter(Boolean)
+	$effect(() => {
+		if (!listHost) return;
+		const observer = new ResizeObserver(() => {
+			listHeight = listHost?.clientHeight ?? 360;
 		});
-		manual = { title: '', priority: 'P1', energy: 'active', deadline: '', projectId: '', tags: '' };
-	}
+		observer.observe(listHost);
+		return () => observer.disconnect();
+	});
 </script>
 
-<section class="bar">
-	<div class="filters">
-		{#each filters as filter}
-			<button type="button" class:active={$activeFilter === filter.key} onclick={() => activeFilter.set(filter.key)}>{filter.label}</button>
-		{/each}
-	</div>
+<section class="head-controls">
+	{#if scrub}
+		<div class="travel-banner">
+			<Clock size={14} />
+			<span>{scrub.date.toLocaleDateString()}</span>
+			<strong>{scrub.active} active</strong>
+		</div>
+	{:else}
+		<div class="filter-wrap">
+			{#each filters as filter}
+				<Pill
+					label={filter === 'open' ? `Open (${openCount})` : filter === 'overdue' ? `Overdue (${overdueCount})` : 'All'}
+					active={$activeFilter === filter}
+					onClick={() => activeFilter.set(filter)}
+				/>
+			{/each}
+		</div>
+	{/if}
 	<div class="sorts">
-		<button type="button" onclick={() => loopSort.set('age')}>age</button>
-		<button type="button" onclick={() => loopSort.set('priority')}>priority</button>
-		<button type="button" onclick={() => loopSort.set('deadline')}>deadline</button>
+		<button type="button" class:active={$loopSort === 'age'} onclick={() => loopSort.set('age')}>age</button>
+		<button type="button" class:active={$loopSort === 'priority'} onclick={() => loopSort.set('priority')}>priority</button>
+		<button type="button" class:active={$loopSort === 'deadline'} onclick={() => loopSort.set('deadline')}>deadline</button>
 	</div>
 </section>
-
-{#if showManual}
-	<section class="manual">
-		<input bind:value={manual.title} placeholder="Loop title" />
-		<div class="grid">
-			<select bind:value={manual.priority}>
-				<option value="P0">P0</option>
-				<option value="P1">P1</option>
-				<option value="P2">P2</option>
-			</select>
-			<select bind:value={manual.energy}>
-				<option value="active">active</option>
-				<option value="waiting">waiting</option>
-				<option value="someday">someday</option>
-			</select>
-		</div>
-		<input bind:value={manual.deadline} type="date" />
-		<select bind:value={manual.projectId}>
-			<option value="">No project</option>
-			{#each ($projectsStore ?? []) as project}
-				<option value={project.id}>{project.name}</option>
-			{/each}
-		</select>
-		<input bind:value={manual.tags} placeholder="tags,comma,separated" />
-		<button type="button" class="cta" onclick={submitManual}>Create loop</button>
-	</section>
-{/if}
 
 <section class="layout">
-	<div class="list">
-		{#if sorted.length === 0}
-			<p class="empty">No loops in this filter.</p>
-		{:else}
-			{#each sorted as loop (loop.id)}
-				<LoopCard loop={loop} onClose={(id) => closeLoop(id, 'done')} onSelect={(id) => (selectedLoopId = id)} />
-			{/each}
-		{/if}
-	</div>
-	<div class="pulse">
-		<div class="pulse-title">Pulse</div>
-		{#each sorted.slice(0, 24) as loop}
-			<div class="pulse-row" style={`--h:${Math.min(96, 16 + (loop.state === 'open' ? 48 : 18))}%`}></div>
-		{/each}
-	</div>
-</section>
-
-{#if selected}
-	<section class="detail">
-		<div class="detail-head">
-			<input value={selected.title} onblur={(e) => updateLoop(selected.id, { title: (e.currentTarget as HTMLInputElement).value })} />
-			{#if selected.state === 'open'}
-				<button type="button" onclick={() => closeLoop(selected.id, 'done')}>Resolve</button>
+	<div class="list-wrap" bind:this={listHost}>
+		<div class="list">
+			{#if sorted.length === 0}
+				<Empty label="No loops in this view" icon={true} />
 			{:else}
-				<button type="button" onclick={() => reopenLoop(selected.id)}>Reopen</button>
+				{#each sorted as loop (loop.id)}
+					<LoopCard
+						loop={loop}
+						ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
+						onSelect={(id) => (selectedLoopId = id)}
+					/>
+				{/each}
 			{/if}
 		</div>
-		<div class="notes">
-			{#each selectedEvents as evt}
-				<div class="evt">
-					<strong>{evt.kind}</strong>
-					<span>{evt.body ?? ''}</span>
-				</div>
-			{/each}
-		</div>
-		<div class="note-add">
-			<input bind:value={noteText} placeholder="Add note..." />
-			<button
-				type="button"
-				onclick={async () => {
-					if (!noteText.trim()) return;
-					await addNote(selected.id, noteText.trim());
-					noteText = '';
-				}}
-			>
-				Add note
-			</button>
-		</div>
-	</section>
-{/if}
+	</div>
+	<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
+</section>
+
+<ThreadDetail loop={selected} events={selectedEvents} open={Boolean(selected)} onClose={() => (selectedLoopId = null)} />
 
 <style>
-	.bar {
-		display: flex;
-		justify-content: space-between;
-		gap: 0.5rem;
+	.head-controls {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 8px;
+		align-items: center;
+		margin-bottom: 10px;
 	}
-	.filters,
+
+	.filter-wrap {
+		display: inline-flex;
+		gap: 2px;
+		padding: 2px;
+		border-radius: 10px;
+		background: rgba(0, 0, 0, 0.025);
+		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02);
+	}
+
 	.sorts {
-		display: flex;
-		gap: 0.4rem;
+		display: inline-flex;
+		gap: 4px;
 	}
-	button {
+
+	.sorts button {
 		border: 0;
-		border-radius: 999px;
-		padding: 0.28rem 0.55rem;
-		background: rgba(0, 0, 0, 0.06);
+		background: transparent;
+		border-radius: 6px;
+		padding: 4px 7px;
+		font-size: 11px;
+		font-weight: 300;
+		color: var(--text4);
+		transition: all 0.15s var(--ease);
 	}
-	button.active,
-	.cta {
-		background: rgba(160, 113, 74, 0.2);
-		color: #6b472d;
+
+	.sorts button.active {
+		background: rgba(0, 0, 0, 0.04);
+		color: var(--text2);
+		font-weight: 400;
 	}
+
+	.travel-banner {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 10px;
+		border-radius: 12px;
+		background: rgba(110, 99, 160, 0.06);
+		border: 1px solid rgba(110, 99, 160, 0.12);
+		box-shadow: 0 1px 4px rgba(110, 99, 160, 0.06);
+		animation: fadeUp 0.2s var(--ease-spring);
+	}
+
+	.travel-banner span,
+	.travel-banner strong {
+		font-size: 10px;
+		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		color: var(--purple);
+	}
+
 	.layout {
 		display: grid;
 		grid-template-columns: 1fr 48px;
-		gap: 0.6rem;
+		gap: 4px;
+		min-height: 0;
+		height: calc(100% - 44px);
 	}
+
+	.list-wrap {
+		min-height: 0;
+		overflow: auto;
+		padding-right: 6px;
+	}
+
 	.list {
-		display: grid;
-		gap: 0.55rem;
-	}
-	.pulse {
-		background: rgba(255, 255, 255, 0.65);
-		border-radius: 12px;
-		padding: 0.4rem;
-		display: grid;
-		gap: 0.2rem;
-		align-content: end;
-	}
-	.pulse-title {
-		font-size: 0.6rem;
-		color: #8a857f;
-		text-transform: uppercase;
-	}
-	.pulse-row {
-		height: 8px;
-		background: linear-gradient(180deg, rgba(110, 99, 160, 0.7), rgba(160, 113, 74, 0.6));
-		border-radius: 999px;
-		transform-origin: bottom;
-		transform: scaleY(calc(var(--h) / 100));
-	}
-	.manual,
-	.detail {
-		background: rgba(255, 255, 255, 0.72);
-		border: 1px solid rgba(0, 0, 0, 0.06);
-		border-radius: 12px;
-		padding: 0.65rem;
-		display: grid;
-		gap: 0.45rem;
-	}
-	.grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.4rem;
-	}
-	input,
-	select {
-		border: 1px solid rgba(0, 0, 0, 0.08);
-		border-radius: 8px;
-		padding: 0.45rem;
-		background: rgba(255, 255, 255, 0.85);
-	}
-	.detail-head {
-		display: flex;
-		gap: 0.5rem;
-	}
-	.detail-head input {
-		flex: 1;
-	}
-	.evt {
-		font-size: 0.8rem;
-		display: grid;
-		gap: 0.15rem;
-		padding: 0.35rem 0;
-		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-	}
-	.note-add {
-		display: flex;
-		gap: 0.4rem;
-	}
-	.note-add input {
-		flex: 1;
+		min-height: 100%;
 	}
 </style>

@@ -1,42 +1,23 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { AlertTriangle, BarChart3, Layers, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
-	import SuggestionCard from '$components/SuggestionCard.svelte';
 	import { syncNow } from '$db/sync';
-	import { applySuggestion } from '$lib/suggestions';
-	import { activeInsightStore, parsePhase, pendingSyncStore, suggestionContextStore, suggestionsStore, syncState, transcriptStore } from '$stores/app';
-	import type { SuggestedAction } from '$types/models';
+	import { loopsStore, pendingSyncStore, syncState } from '$stores/app';
+	import { isOverdue } from '$lib/utils';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 
 	let { children } = $props();
 	const tabs = [
-		{ href: '/loops', label: 'Loops' },
-		{ href: '/people', label: 'People' },
-		{ href: '/mirror', label: 'Mirror' }
+		{ href: '/loops', label: 'Tasks', icon: Layers },
+		{ href: '/people', label: 'People', icon: Users },
+		{ href: '/mirror', label: 'Mirror', icon: BarChart3 }
 	];
 
-	async function acceptSuggestion(item: SuggestedAction) {
-		await applySuggestion(item, $suggestionContextStore.dumpId);
-		suggestionsStore.update((v) => v.filter((x) => x !== item));
-		if ($suggestionsStore.length <= 1) {
-			setTimeout(() => {
-				suggestionsStore.set([]);
-				suggestionContextStore.set({ dumpId: null });
-			}, 1200);
-		}
-	}
-
-	function dismissSuggestion(item: SuggestedAction) {
-		suggestionsStore.update((v) => v.filter((x) => x !== item));
-		if ($suggestionsStore.length <= 1) {
-			setTimeout(() => {
-				suggestionsStore.set([]);
-				suggestionContextStore.set({ dumpId: null });
-			}, 1200);
-		}
-	}
+	const openCount = $derived(($loopsStore ?? []).filter((loop) => loop.state === 'open').length);
+	const overdueCount = $derived(($loopsStore ?? []).filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
 	onMount(() => {
 		const timer = setInterval(async () => {
@@ -57,49 +38,62 @@
 </script>
 
 <svelte:head>
+	<title>engram | AI-native task tracking</title>
+	<meta
+		name="description"
+		content="AI-native task tracking that clears your mind."
+	/>
+	<link rel="canonical" href="https://engram.adiwak.com{$page.url.pathname}" />
+	<meta property="og:title" content="engram" />
+	<meta
+		property="og:description"
+		content="AI-native task tracking that clears your mind."
+	/>
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content="https://engram.adiwak.com{$page.url.pathname}" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="engram" />
+	<meta
+		name="twitter:description"
+		content="AI-native task tracking that clears your mind."
+	/>
 	<link rel="icon" href={favicon} />
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 	<meta name="theme-color" content="#faf9f7" />
 </svelte:head>
 
 <main class="app-shell">
-	<header>
-		<h1>Engram</h1>
-		<div class="sync-status">{$syncState}{#if $pendingSyncStore}{` · ${$pendingSyncStore} pending`}{/if}</div>
-		<nav>
-			{#each tabs as tab}
-				<a class:active={$page.url.pathname === tab.href} href={tab.href}>{tab.label}</a>
-			{/each}
-		</nav>
+	<header class="app-header">
+		<h1 class="app-title">engram</h1>
+		<div class="app-open-meta">
+			<span>{openCount} open</span>
+			{#if overdueCount > 0}
+				<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
+					<AlertTriangle size={12} />
+					{overdueCount}
+				</span>
+			{/if}
+			{#if $pendingSyncStore}
+				<span class="sr-only">{$syncState}</span>
+			{/if}
+		</div>
 	</header>
 
 	<section class="content">
 		{@render children()}
 	</section>
 
-	{#if $activeInsightStore}
-		<section class="active-insight">
-			<span>Active {$activeInsightStore.openCount}</span>
-			<span>Overdue {$activeInsightStore.overdueCount}</span>
-		</section>
-	{/if}
+	<div class="dump-slot">
+		<DumpBar />
+	</div>
 
-	{#if $transcriptStore}
-		{#key $transcriptStore.at}
-			<section class="transcript-card" class:shimmering={$parsePhase === 'parsing' || $parsePhase === 'suggesting'}>
-				<div class="transcript-meta">{$transcriptStore.source} transcript</div>
-				<p>{$transcriptStore.text}</p>
-			</section>
-		{/key}
-	{/if}
-
-	{#if $suggestionsStore.length > 0}
-		<section class="suggestions">
-			{#each $suggestionsStore as item, index (`${item.action}-${index}`)}
-				<SuggestionCard item={item} onAccept={acceptSuggestion} onDismiss={dismissSuggestion} />
+	<nav class="tab-bar">
+		{#each tabs as tab}
+			<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
+				<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+				<span>{tab.label}</span>
+				<span class="tab-underline"></span>
+			</a>
 			{/each}
-		</section>
-	{/if}
-
-	<DumpBar />
+	</nav>
 </main>

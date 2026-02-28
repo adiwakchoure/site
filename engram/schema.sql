@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS loops (
 
   created_at    TEXT NOT NULL,
   closed_at     TEXT,
+  archived_at   TEXT,
   updated_at    TEXT NOT NULL
 );
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS events (
 
   body          TEXT,
   meta          TEXT,
+  sequence      INTEGER NOT NULL DEFAULT 1,
 
   dump_id       TEXT REFERENCES dumps(id),
   created_at    TEXT NOT NULL
@@ -68,8 +70,22 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS dumps (
   id            TEXT PRIMARY KEY,
   raw           TEXT NOT NULL,
+  transcript    TEXT,
+  source        TEXT NOT NULL DEFAULT 'text'
+                  CHECK(source IN ('text', 'voice')),
   processed     INTEGER DEFAULT 0,
   created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS suggestions (
+  id            TEXT PRIMARY KEY,
+  dump_id       TEXT REFERENCES dumps(id) ON DELETE SET NULL,
+  action        TEXT NOT NULL,
+  payload       TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending', 'accepted', 'dismissed')),
+  created_at    TEXT NOT NULL,
+  resolved_at   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_loops_active ON loops(state, energy) WHERE state = 'open';
@@ -78,4 +94,6 @@ CREATE INDEX IF NOT EXISTS idx_loops_project ON loops(project_id) WHERE project_
 CREATE INDEX IF NOT EXISTS idx_loops_parent ON loops(parent_id) WHERE parent_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_events_loop ON events(loop_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_sequence ON events(loop_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_loop_person ON loop_person(person_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_dump ON suggestions(dump_id, status, created_at);

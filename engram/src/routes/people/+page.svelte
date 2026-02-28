@@ -1,9 +1,17 @@
 <script lang="ts">
+	import { ChevronDown } from 'lucide-svelte';
+	import Empty from '$components/Empty.svelte';
+	import LoopCard from '$components/LoopCard.svelte';
+	import Badge from '$components/Badge.svelte';
+	import PersonCard from '$components/PersonCard.svelte';
 	import { loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
+	import { ageInDays, isOverdue } from '$lib/utils';
+	import type { Loop, Person } from '$types/models';
 
-	$: people = $peopleStore ?? [];
-	$: loops = $loopsStore ?? [];
-	$: links = $loopPeopleStore ?? [];
+	const people = $derived(($peopleStore ?? []) as Person[]);
+	const loops = $derived(($loopsStore ?? []) as Loop[]);
+	const links = $derived($loopPeopleStore ?? []);
+	let selectedPersonId = $state<string | null>(null);
 
 	function stats(personId: string) {
 		const loopIds = links.filter((link) => link.personId === personId).map((link) => link.loopId);
@@ -20,74 +28,177 @@
 		const longest = open.length
 			? Math.max(...open.map((loop) => Math.floor((Date.now() - +new Date(loop.createdAt)) / (1000 * 60 * 60 * 24))))
 			: 0;
-		return { openCount: open.length, closedCount: closed.length, avgDays, longest, openLoops: open, closedLoops: closed };
+		return { openCount: open.length, closedCount: closed.length, avgDays, longest, openLoops: open as Loop[], closedLoops: closed as Loop[] };
 	}
+
+	const selectedPerson = $derived((people as Person[]).find((person) => person.id === selectedPersonId) ?? null);
 </script>
 
 {#if people.length === 0}
-	<p class="empty">No people yet.</p>
+	<Empty label="No people yet" icon={true} />
 {:else}
-	<section class="list">
-		{#each people as person (person.id)}
-			<article class="person">
-				<h3>{person.name}</h3>
-				<p>{person.rel || 'contact'}</p>
-				<div class="stat-grid">
-					<span>open {stats(person.id).openCount}</span>
-					<span>closed {stats(person.id).closedCount}</span>
-					<span>avg {stats(person.id).avgDays}d</span>
-					<span>longest {stats(person.id).longest}d</span>
+	{#if !selectedPerson}
+		<section class="list">
+			{#each people as person, i (person.id)}
+				<div style={`animation-delay:${i * 40}ms`}>
+					<PersonCard
+						person={person}
+						openCount={stats(person.id).openCount}
+						overdueCount={stats(person.id).openLoops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length}
+						onSelect={() => (selectedPersonId = person.id)}
+					/>
 				</div>
-				<div class="loops">
-					{#each stats(person.id).openLoops as loop}
-						<div class="loop">{loop.title}</div>
+			{/each}
+		</section>
+	{:else}
+		<section class="detail">
+			<button class="back" type="button" onclick={() => (selectedPersonId = null)}>
+				<ChevronDown size={13} />
+				Back
+			</button>
+			<header>
+				<h2>{selectedPerson.name}</h2>
+				<p>{selectedPerson.rel || 'contact'}</p>
+			</header>
+			<div class="stat-grid">
+				<article><strong>{stats(selectedPerson.id).openCount}</strong><span>Open</span></article>
+				<article><strong>{stats(selectedPerson.id).closedCount}</strong><span>Closed</span></article>
+				<article><strong>{stats(selectedPerson.id).avgDays}d</strong><span>Avg</span></article>
+				<article><strong>{stats(selectedPerson.id).longest}d</strong><span>Longest</span></article>
+			</div>
+			<section>
+				<h4>Open tasks</h4>
+				{#if stats(selectedPerson.id).openLoops.length === 0}
+					<p class="empty-inline">No open tasks.</p>
+				{:else}
+					{#each stats(selectedPerson.id).openLoops as loop (loop.id)}
+						<LoopCard loop={loop} onSelect={() => {}} />
+					{/each}
+				{/if}
+			</section>
+			<section>
+				<h4>Resolved</h4>
+				<div class="resolved">
+					{#each stats(selectedPerson.id).closedLoops as loop (loop.id)}
+						<div class="resolved-item">
+							<div>{loop.title}</div>
+							<Badge label={loop.closedReason ?? 'closed'} color="#3d8a4a" />
+							<small>{ageInDays(loop.createdAt)}d</small>
+						</div>
 					{/each}
 				</div>
-			</article>
-		{/each}
-	</section>
+			</section>
+		</section>
+	{/if}
 {/if}
 
 <style>
 	.list {
 		display: grid;
-		gap: 0.6rem;
+		gap: 6px;
 	}
-	.person {
-		background: rgba(255, 255, 255, 0.68);
-		border: 1px solid rgba(0, 0, 0, 0.06);
-		border-radius: 12px;
-		padding: 0.75rem;
+
+	.detail {
+		display: grid;
+		gap: 10px;
 	}
-	h3 {
+
+	.back {
+		width: fit-content;
+		border: 0;
+		background: transparent;
+		color: var(--text2);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+	}
+
+	.back :global(svg) {
+		transform: rotate(90deg);
+	}
+
+	h2 {
 		margin: 0;
+		font-family: 'Instrument Serif', 'Times New Roman', serif;
+		font-size: 22px;
+		font-weight: 400;
 	}
-	p {
-		margin: 0.18rem 0 0.5rem;
-		color: #8a857f;
-		font-size: 0.8rem;
+
+	header p {
+		margin: 2px 0 0;
+		font-size: 11px;
+		color: var(--text4);
 	}
+
 	.stat-grid {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.35rem;
-		font-size: 0.74rem;
-		margin-bottom: 0.45rem;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 6px;
 	}
+
+	.stat-grid article {
+		padding: 10px;
+		border-radius: 12px;
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		background: rgba(255, 255, 255, 0.5);
+		box-shadow: var(--shadow-sm);
+		animation: cardIn 0.24s var(--ease-spring);
+	}
+
+	.stat-grid strong {
+		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 18px;
+		font-weight: 300;
+	}
+
 	.stat-grid span {
-		background: rgba(0, 0, 0, 0.05);
-		padding: 0.2rem 0.35rem;
-		border-radius: 8px;
+		display: block;
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text3);
 	}
-	.loops {
+
+	h4 {
+		margin: 0 0 8px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text3);
+	}
+
+	.resolved {
 		display: grid;
-		gap: 0.22rem;
+		gap: 6px;
+		opacity: 0.4;
 	}
-	.loop {
-		font-size: 0.8rem;
+
+	.resolved-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		padding: 7px 8px;
+		border-radius: 10px;
+		transition: all 0.15s var(--ease);
 	}
-	.empty {
-		color: #8a857f;
-		font-size: 0.9rem;
+
+	.resolved-item:hover {
+		opacity: 0.7;
+		background: rgba(255, 255, 255, 0.4);
+	}
+
+	.resolved-item small {
+		margin-left: auto;
+		font-size: 10px;
+		color: var(--text3);
+		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	}
+
+	.empty-inline {
+		margin: 0;
+		font-size: 12px;
+		color: var(--text3);
 	}
 </style>

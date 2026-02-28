@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
+import { ensureD1Schema } from '$db/bootstrap';
 
 const changeSchema = z.object({
-	table: z.enum(['loops', 'events', 'people', 'projects', 'dumps', 'loop_person']),
+	table: z.enum(['loops', 'events', 'people', 'projects', 'dumps', 'suggestions', 'loop_person']),
 	op: z.enum(['put', 'delete']),
 	id: z.string(),
 	data: z.record(z.string(), z.unknown()).optional(),
@@ -21,6 +22,7 @@ const tablePrimaryKey = {
 	people: 'id',
 	projects: 'id',
 	dumps: 'id',
+	suggestions: 'id',
 	loop_person: 'loop_id'
 } as const;
 
@@ -36,6 +38,7 @@ const normalizeForClient = (obj: Record<string, unknown>) =>
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
 	if (!env?.DB) return json({ error: 'D1 binding missing' }, { status: 500 });
+	await ensureD1Schema(env as App.Platform['env'] | undefined);
 
 	const parsed = payloadSchema.safeParse(await request.json());
 	if (!parsed.success) return json({ error: 'Invalid sync payload' }, { status: 400 });
@@ -91,6 +94,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const dumps = await env.DB.prepare('SELECT * FROM dumps WHERE created_at > ? ORDER BY created_at ASC LIMIT 100').bind(lastSync).all();
 	for (const row of dumps.results ?? []) {
 		outgoing.push({ table: 'dumps', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
+	}
+	const suggestions = await env.DB.prepare('SELECT * FROM suggestions WHERE created_at > ? ORDER BY created_at ASC LIMIT 200').bind(lastSync).all();
+	for (const row of suggestions.results ?? []) {
+		outgoing.push({
+			table: 'suggestions',
+			op: 'put',
+			id: String((row as Record<string, unknown>).id),
+			data: normalizeForClient(row as Record<string, unknown>),
+			ts: String((row as Record<string, unknown>).created_at)
+		});
 	}
 	const loopPeople = await env.DB.prepare(
 		'SELECT lp.* FROM loop_person lp JOIN loops l ON l.id = lp.loop_id WHERE l.updated_at > ? LIMIT 200'

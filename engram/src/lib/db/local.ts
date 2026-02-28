@@ -1,6 +1,19 @@
 import { liveQuery } from 'dexie';
 import { db } from '$db/schema';
-import type { ClosedReason, Dump, Loop, LoopEnergy, LoopEvent, LoopPersonRole, LoopPriority, Person, Project, SyncOp } from '$types/models';
+import type {
+	ClosedReason,
+	Dump,
+	Loop,
+	LoopEnergy,
+	LoopEvent,
+	LoopPersonRole,
+	LoopPriority,
+	Person,
+	Project,
+	SuggestedAction,
+	SuggestionRecord,
+	SyncOp
+} from '$types/models';
 import { uid } from '$lib/utils';
 
 const nowIso = () => new Date().toISOString();
@@ -10,6 +23,13 @@ const queue = async (op: Omit<SyncOp, 'seq'>) => db.syncQueue.add(op);
 async function putEvent(event: LoopEvent) {
 	await db.events.put(event);
 	await queue({ table: 'events', op: 'put', id: event.id, data: event as unknown as Record<string, unknown>, ts: event.createdAt });
+}
+
+async function nextSequence(loopId: string | null): Promise<number> {
+	if (!loopId) return 1;
+	const events = await db.events.where('loopId').equals(loopId).toArray();
+	if (events.length === 0) return 1;
+	return Math.max(...events.map((evt) => evt.sequence || 0)) + 1;
 }
 
 async function putLoop(loop: Loop) {
@@ -43,6 +63,7 @@ export async function createLoop(input: {
 		tags: (input.tags ?? []).join(','),
 		createdAt: now,
 		closedAt: null,
+		archivedAt: null,
 		updatedAt: now
 	};
 	await putLoop(loop);
@@ -56,9 +77,11 @@ export async function createLoop(input: {
 			priority: loop.priority,
 			energy: loop.energy,
 			deadline: loop.deadline,
-			projectId: loop.projectId
+			projectId: loop.projectId,
+			tags: loop.tags
 		}),
 		dumpId: input.dumpId ?? null,
+		sequence: await nextSequence(loop.id),
 		createdAt: now
 	});
 	return loop;
@@ -79,6 +102,7 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'ti
 			.join(', '),
 		meta: JSON.stringify(changes),
 		dumpId: null,
+		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
 	return next;
@@ -93,6 +117,7 @@ export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: st
 		state: 'closed',
 		closedReason: reason,
 		closedAt: now,
+		archivedAt: null,
 		updatedAt: now
 	};
 	await putLoop(next);
@@ -103,6 +128,7 @@ export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: st
 		body: null,
 		meta: JSON.stringify({ reason }),
 		dumpId,
+		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
 	return next;
@@ -117,6 +143,7 @@ export async function reopenLoop(loopId: string) {
 		state: 'open',
 		closedReason: null,
 		closedAt: null,
+		archivedAt: null,
 		updatedAt: now
 	};
 	await putLoop(next);
@@ -127,6 +154,7 @@ export async function reopenLoop(loopId: string) {
 		body: null,
 		meta: null,
 		dumpId: null,
+		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
 	return next;
@@ -141,9 +169,28 @@ export async function addNote(loopId: string, text: string, dumpId: string | nul
 		body: text,
 		meta: null,
 		dumpId,
+		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
 	await updateLoop(loopId, {});
+}
+
+export async function deleteLoop(loopId: string) {
+	const current = await db.loops.get(loopId);
+	if (!current) return;
+	const now = nowIso();
+	await db.loops.delete(loopId);
+	await queue({ table: 'loops', op: 'delete', id: loopId, ts: now });
+	await putEvent({
+		id: uid('evt'),
+		loopId,
+		kind: 'deleted',
+		body: null,
+		meta: null,
+		dumpId: null,
+		sequence: await nextSequence(loopId),
+		createdAt: now
+	});
 }
 
 export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) {
@@ -157,6 +204,7 @@ export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?:
 		body: `person created: ${person.name}`,
 		meta: JSON.stringify({ entity: 'person', personId: person.id }),
 		dumpId: null,
+		sequence: await nextSequence(null),
 		createdAt: nowIso()
 	});
 	return person;
@@ -180,6 +228,7 @@ export async function putProject(input: Omit<Project, 'id' | 'createdAt' | 'arch
 		body: `project created: ${project.name}`,
 		meta: JSON.stringify({ entity: 'project', projectId: project.id }),
 		dumpId: null,
+		sequence: await nextSequence(null),
 		createdAt: nowIso()
 	});
 	return project;
@@ -200,6 +249,8 @@ export async function putDump(input: Omit<Dump, 'id' | 'createdAt' | 'processed'
 	const dump: Dump = {
 		id: input.id ?? uid('dump'),
 		raw: input.raw,
+		source: input.source,
+		transcript: input.transcript ?? null,
 		processed: input.processed ?? 0,
 		createdAt: input.createdAt ?? nowIso()
 	};
@@ -208,9 +259,47 @@ export async function putDump(input: Omit<Dump, 'id' | 'createdAt' | 'processed'
 	return dump;
 }
 
+export async function putSuggestion(input: Omit<SuggestionRecord, 'id' | 'createdAt' | 'resolvedAt' | 'status'> & { id?: string }) {
+	const now = nowIso();
+	const suggestion: SuggestionRecord = {
+		id: input.id ?? uid('sg'),
+		dumpId: input.dumpId,
+		action: input.action,
+		payload: input.payload,
+		status: 'pending',
+		createdAt: now,
+		resolvedAt: null
+	};
+	await db.suggestions.put(suggestion);
+	await queue({ table: 'suggestions', op: 'put', id: suggestion.id, data: suggestion as unknown as Record<string, unknown>, ts: now });
+	return suggestion;
+}
+
+export async function putSuggestionsForDump(dumpId: string | null, suggestions: SuggestedAction[]) {
+	const records = await Promise.all(
+		suggestions.map((item) => putSuggestion({ dumpId, action: item.action, payload: JSON.stringify(item) }))
+	);
+	return records;
+}
+
+export async function setSuggestionStatus(suggestionId: string, status: 'accepted' | 'dismissed') {
+	const current = await db.suggestions.get(suggestionId);
+	if (!current) return;
+	const next: SuggestionRecord = { ...current, status, resolvedAt: nowIso() };
+	await db.suggestions.put(next);
+	await queue({
+		table: 'suggestions',
+		op: 'put',
+		id: next.id,
+		data: next as unknown as Record<string, unknown>,
+		ts: next.resolvedAt ?? nowIso()
+	});
+}
+
 export const liveLoops = () => liveQuery(() => db.loops.toArray());
 export const liveEvents = () => liveQuery(() => db.events.toArray());
 export const livePeople = () => liveQuery(() => db.people.toArray());
 export const liveProjects = () => liveQuery(() => db.projects.toArray());
 export const liveDumps = () => liveQuery(() => db.dumps.toArray());
 export const liveLoopPeople = () => liveQuery(() => db.loopPeople.toArray());
+export const liveSuggestions = () => liveQuery(() => db.suggestions.toArray());

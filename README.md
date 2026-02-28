@@ -1,8 +1,8 @@
 # Engram
 
-Engram is an offline-first, voice-and-text commitment tracker built on SvelteKit + Cloudflare.
+Engram is an offline-first, AI-native task tracking app built on SvelteKit + Cloudflare.
 
-It turns brain dumps into structured actions, lets you accept/dismiss suggestions, and persists everything through an event-style model around loops.
+It turns brain dumps into structured actions, lets you accept/dismiss suggestions, and persists everything through an event-style model around tasks.
 
 ## Core Product Flow
 
@@ -23,13 +23,13 @@ It turns brain dumps into structured actions, lets you accept/dismiss suggestion
 
 ## Repository Structure
 
-- `src/routes/loops/+page.svelte`: primary loops view (filters, sort, manual actions, detail panel)
-- `src/routes/people/+page.svelte`: people stats and linked loops
-- `src/routes/mirror/+page.svelte`: insights/archive/dump log tabs
+- `src/routes/loops/+page.svelte`: primary tasks view (filters, sort, detail panel)
+- `src/routes/people/+page.svelte`: people stats and linked tasks
+- `src/routes/mirror/+page.svelte`: insights + archive views
 - `src/routes/api/dump/+server.ts`: transcription + suggestion extraction
 - `src/routes/api/sync/+server.ts`: bidirectional sync API
 - `src/lib/db/*`: local DB schema, mutation helpers, sync engine
-- `schema.sql`: D1 schema for loops/events/people/projects/dumps
+- `schema.sql`: D1 schema for loops/events/people/projects/dumps/suggestions
 - `wrangler.toml`: Cloudflare bindings and Pages output config
 
 ## Data Model
@@ -42,8 +42,23 @@ Main entities:
 - `loop_person`
 - `projects`
 - `dumps`
+- `suggestions`
 
 Events (`created`, `closed`, `reopened`, `updated`, `noted`) are appended as history while loop state is materialized for fast reads.
+
+## UI Copy Guidelines
+
+Use these terms consistently in user-facing text:
+
+- **Task**: primary unit of work (internally still stored under `loops` tables/types).
+- **Update**: any activity added to a task.
+- **Activity Log**: chronological updates for a task detail view.
+- **Archive**: closed tasks.
+- **Mirror**: analytics view.
+
+Avoid legacy terms in UI copy:
+
+- "thread", "loop", "stack trace", "dump log", "note" (when meaning update history)
 
 ## Local Development
 
