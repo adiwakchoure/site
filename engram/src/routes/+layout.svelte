@@ -39,6 +39,12 @@
 
 <svelte:head>
 	<title>engram | AI-native loop tracking</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		rel="stylesheet"
+		href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+	/>
 	<meta
 		name="description"
 		content="AI-native loop tracking that clears your mind."

@@ -95,7 +95,7 @@ export async function createLoop(input: {
 	return loop;
 }
 
-export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'title' | 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
+export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();

@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { Check, RotateCw, X } from 'lucide-svelte';
-	import { addLoopNote, addUpdate, closeLoop, reopenLoop, updateLoop, updateLoopNote } from '$db/local';
+	import { addLoopNote, addUpdate, closeLoop, reopenLoop, updateLoopNote } from '$db/local';
 	import { loopNotesStore } from '$stores/app';
 	import type { ClosedReason, Loop, LoopEvent, LoopNote } from '$types/models';
 	import ActionBtn from '$components/ActionBtn.svelte';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
+	import Toast from '$components/Toast.svelte';
 
 	type OptimisticTimelineEntry = {
 		id: string;
@@ -42,6 +44,8 @@
 	let editingNoteId = $state<string | null>(null);
 	let editingNoteBody = $state('');
 	let updateInput = $state<HTMLInputElement | null>(null);
+	let toast = $state<string | null>(null);
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const isOverdue = $derived(loop ? Boolean(loop.deadline && loop.state === 'open' && new Date(loop.deadline).getTime() < Date.now()) : false);
 	const loopNotes = $derived.by(() =>
@@ -102,6 +106,14 @@
 		});
 	}
 
+	function showToast(message: string) {
+		toast = message;
+		if (toastTimer) clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => {
+			toast = null;
+		}, 2200);
+	}
+
 	async function submitUpdate() {
 		if (!loop || !updateText.trim()) return;
 		const body = updateText.trim();
@@ -113,8 +125,10 @@
 		try {
 			await addUpdate(loop.id, body);
 			optimistic = optimistic.filter((entry) => entry.id !== optimisticId);
+			showToast('Update saved');
 		} catch {
 			optimistic = optimistic.map((entry) => (entry.id === optimisticId ? { ...entry, status: 'failed' } : entry));
+			showToast('Could not save update');
 		}
 	}
 
@@ -124,15 +138,22 @@
 		try {
 			await addUpdate(loop.id, entry.body);
 			optimistic = optimistic.filter((row) => row.id !== entry.id);
+			showToast('Update saved');
 		} catch {
 			optimistic = optimistic.map((row) => (row.id === entry.id ? { ...row, status: 'failed' } : row));
+			showToast('Retry failed');
 		}
 	}
 
 	async function submitNote() {
 		if (!loop || !noteText.trim()) return;
-		await addLoopNote(loop.id, noteText.trim());
-		noteText = '';
+		try {
+			await addLoopNote(loop.id, noteText.trim());
+			noteText = '';
+			showToast('Note added');
+		} catch {
+			showToast('Could not add note');
+		}
 	}
 
 	function beginEdit(note: LoopNote) {
@@ -142,16 +163,40 @@
 
 	async function saveEdit() {
 		if (!editingNoteId || !editingNoteBody.trim()) return;
-		await updateLoopNote(editingNoteId, editingNoteBody.trim());
-		editingNoteId = null;
-		editingNoteBody = '';
+		try {
+			await updateLoopNote(editingNoteId, editingNoteBody.trim());
+			editingNoteId = null;
+			editingNoteBody = '';
+			showToast('Note saved');
+		} catch {
+			showToast('Could not save note');
+		}
 	}
 
 	async function resolveLoop() {
 		if (!loop) return;
-		await closeLoop(loop.id, reason);
-		resolveMode = false;
+		try {
+			await closeLoop(loop.id, reason);
+			resolveMode = false;
+			showToast('Loop archived');
+		} catch {
+			showToast('Could not archive loop');
+		}
 	}
+
+	async function reopenCurrentLoop() {
+		if (!loop) return;
+		try {
+			await reopenLoop(loop.id);
+			showToast('Loop reopened');
+		} catch {
+			showToast('Could not reopen loop');
+		}
+	}
+
+	onDestroy(() => {
+		if (toastTimer) clearTimeout(toastTimer);
+	});
 </script>
 
 {#if open && loop}
@@ -161,7 +206,7 @@
 		tabindex="0"
 		aria-label="Close loop details"
 		onpointerdown={onClose}
-		onkeydown={(event) => (event.key === 'Escape' || event.key === 'Enter') && onClose()}
+		onkeydown={(event) => event.key === 'Escape' && onClose()}
 	>
 		<div role="dialog" aria-modal="true" aria-label="Loop details" tabindex="-1" class="sheet" onpointerdown={(event) => event.stopPropagation()}>
 			<div class="drag"></div>
@@ -177,10 +222,7 @@
 					<span class="spacer"></span>
 					<IconBtn title="Close" size={30} onClick={onClose}><X size={14} /></IconBtn>
 				</div>
-				<input
-					value={loop.title}
-					onblur={(event) => updateLoop(loop.id, { title: (event.currentTarget as HTMLInputElement).value.trim() || loop.title })}
-				/>
+				<h2 class="head-title">{loop.title}</h2>
 			</header>
 			<div class="body">
 				<div class="meta">
@@ -220,7 +262,13 @@
 							bind:this={updateInput}
 							bind:value={updateText}
 							placeholder="Add update to timeline..."
-							onkeydown={(event) => event.key === 'Enter' && submitUpdate()}
+							onkeydown={(event) => {
+								if (event.key === 'Enter') {
+									event.preventDefault();
+									event.stopPropagation();
+									submitUpdate();
+								}
+							}}
 						/>
 					</div>
 				</section>
@@ -234,13 +282,20 @@
 							{#each loopNotes as note (note.id)}
 								<div class="note-row">
 									{#if editingNoteId === note.id}
-										<input bind:value={editingNoteBody} onkeydown={(event) => event.key === 'Enter' && saveEdit()} />
+										<input
+											bind:value={editingNoteBody}
+											onkeydown={(event) => {
+												if (event.key === 'Enter') {
+													event.preventDefault();
+													event.stopPropagation();
+													saveEdit();
+												}
+											}}
+										/>
 										<button type="button" class="small" onclick={saveEdit}>Save</button>
 									{:else}
 										<p>{note.body}</p>
 										<div class="row-meta">
-											<span class="info-tag">{relativeAge(note.updatedAt)}</span>
-											<span class="info-tag">{absoluteStamp(note.updatedAt)}</span>
 											<button type="button" class="small" onclick={() => beginEdit(note)}>Edit</button>
 										</div>
 									{/if}
@@ -249,7 +304,17 @@
 						</div>
 					{/if}
 					<div class="composer">
-						<input bind:value={noteText} placeholder="Add context note..." onkeydown={(event) => event.key === 'Enter' && submitNote()} />
+						<input
+							bind:value={noteText}
+							placeholder="Add context note..."
+							onkeydown={(event) => {
+								if (event.key === 'Enter') {
+									event.preventDefault();
+									event.stopPropagation();
+									submitNote();
+								}
+							}}
+						/>
 					</div>
 				</section>
 			</div>
@@ -273,7 +338,7 @@
 							</ActionBtn>
 						{/if}
 					{:else}
-						<ActionBtn title="Reopen loop" color="rgba(255,255,255,0.7)" onClick={() => reopenLoop(loop.id)}>
+						<ActionBtn title="Reopen loop" color="rgba(255,255,255,0.7)" onClick={reopenCurrentLoop}>
 							<span style="color:var(--text2)">Reopen loop</span>
 						</ActionBtn>
 					{/if}
@@ -281,6 +346,10 @@
 			</footer>
 		</div>
 	</div>
+{/if}
+
+{#if toast}
+	<Toast message={toast} />
 {/if}
 
 <style>
@@ -331,11 +400,9 @@
 		flex: 1;
 	}
 
-	.head input {
+	.head-title {
+		margin: 0;
 		width: 100%;
-		border: 0;
-		background: transparent;
-		box-shadow: none;
 		font-family: var(--font-serif);
 		font-size: var(--text-xl);
 		font-weight: var(--weight-normal);

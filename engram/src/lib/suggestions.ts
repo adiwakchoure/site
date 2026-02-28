@@ -98,8 +98,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		await updateLoop(item.loopId, {
 			priority: (changes.priority as 'P0' | 'P1' | 'P2' | undefined) ?? item.priority,
 			energy: (changes.energy as 'active' | 'waiting' | 'someday' | undefined) ?? item.energy,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			title: typeof changes.title === 'string' ? changes.title : undefined
+			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined
 		});
 		await markAccepted();
 	}
@@ -111,8 +110,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		await updateLoop(resolved, {
 			priority: (changes.priority as 'P0' | 'P1' | 'P2' | undefined) ?? item.priority,
 			energy: (changes.energy as 'active' | 'waiting' | 'someday' | undefined) ?? item.energy,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			title: typeof changes.title === 'string' ? changes.title : undefined
+			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined
 		});
 		await markAccepted();
 	}
