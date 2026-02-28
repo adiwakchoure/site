@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Check, X } from 'lucide-svelte';
-	import { addNote, closeLoop, reopenLoop, updateLoop } from '$db/local';
+	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
 	import type { ClosedReason, Loop, LoopEvent } from '$types/models';
 	import ActionBtn from '$components/ActionBtn.svelte';
 	import IconBtn from '$components/IconBtn.svelte';
@@ -26,7 +26,7 @@
 
 	async function submitNote() {
 		if (!loop || !note.trim()) return;
-		await addNote(loop.id, note.trim());
+		await addUpdate(loop.id, note.trim());
 		note = '';
 	}
 

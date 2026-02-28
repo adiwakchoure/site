@@ -117,7 +117,7 @@ export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: st
 		state: 'closed',
 		closedReason: reason,
 		closedAt: now,
-		archivedAt: null,
+		archivedAt: now,
 		updatedAt: now
 	};
 	await putLoop(next);
@@ -160,7 +160,7 @@ export async function reopenLoop(loopId: string) {
 	return next;
 }
 
-export async function addNote(loopId: string, text: string, dumpId: string | null = null) {
+export async function addUpdate(loopId: string, text: string, dumpId: string | null = null) {
 	const now = nowIso();
 	await putEvent({
 		id: uid('evt'),
@@ -174,6 +174,8 @@ export async function addNote(loopId: string, text: string, dumpId: string | nul
 	});
 	await updateLoop(loopId, {});
 }
+
+export const addNote = addUpdate;
 
 export async function deleteLoop(loopId: string) {
 	const current = await db.loops.get(loopId);

@@ -57,10 +57,22 @@ function parseModelJson(raw: string): SuggestedAction[] | null {
 	try {
 		const parsed = JSON.parse(raw);
 		if (Array.isArray(parsed)) return parsed as SuggestedAction[];
+		if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { suggestions?: unknown }).suggestions)) {
+			return (parsed as { suggestions: SuggestedAction[] }).suggestions;
+		}
 		return null;
 	} catch {
 		const match = raw.match(/\[[\s\S]*\]/);
-		if (!match) return null;
+		if (!match) {
+			const objectMatch = raw.match(/\{[\s\S]*\}/);
+			if (!objectMatch) return null;
+			try {
+				const parsed = JSON.parse(objectMatch[0]) as { suggestions?: unknown };
+				return Array.isArray(parsed.suggestions) ? (parsed.suggestions as SuggestedAction[]) : null;
+			} catch {
+				return null;
+			}
+		}
 		try {
 			const parsed = JSON.parse(match[0]);
 			return Array.isArray(parsed) ? (parsed as SuggestedAction[]) : null;
@@ -106,6 +118,30 @@ function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallb
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
 const GROQ_REASONING_MODEL = 'openai/gpt-oss-120b';
 const GROQ_TRANSCRIPTION_MODEL = 'whisper-large-v3-turbo';
+const GROQ_SUGGESTIONS_RESPONSE_SCHEMA = {
+	type: 'json_schema',
+	json_schema: {
+		name: 'engram_suggestions',
+		schema: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {
+				suggestions: {
+					type: 'array',
+					items: {
+						type: 'object',
+						additionalProperties: true,
+						properties: {
+							action: { type: 'string' }
+						},
+						required: ['action']
+					}
+				}
+			},
+			required: ['suggestions']
+		}
+	}
+} as const;
 
 function resolveGroqApiKey(env: App.Platform['env'] | undefined): string {
 	return env?.GROQ_API_KEY ?? privateEnv.GROQ_API_KEY ?? '';
@@ -139,9 +175,10 @@ async function runReasoningWithGroq(prompt: string, temperature: number, apiKey:
 		body: JSON.stringify({
 			model: GROQ_REASONING_MODEL,
 			messages: [
-				{ role: 'system', content: 'Return strictly JSON array only.' },
+				{ role: 'system', content: 'Return strictly JSON with shape: { "suggestions": [...] }.' },
 				{ role: 'user', content: prompt }
 			],
+			response_format: GROQ_SUGGESTIONS_RESPONSE_SCHEMA,
 			temperature
 		})
 	});
@@ -261,7 +298,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	try {
 		const prompt = `
 You extract structured actions from brain dumps.
-Return ONLY a JSON array.
+Return ONLY JSON object: { "suggestions": [ ... ] }.
 Each object:
 {
   "action": "open_loop" | "close_loop" | "add_note" | "update_loop" | "create_person" | "create_project",

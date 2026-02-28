@@ -2,7 +2,7 @@
 	import { Clock } from 'lucide-svelte';
 	import LoopCard from '$components/LoopCard.svelte';
 	import Pill from '$components/Pill.svelte';
-	import ThreadDetail from '$components/ThreadDetail.svelte';
+	import TaskDetail from '$components/TaskDetail.svelte';
 	import Pulse from '$components/Pulse.svelte';
 	import Empty from '$components/Empty.svelte';
 	import { activeFilter, eventsStore, loopSort, loopsStore } from '$stores/app';
@@ -11,7 +11,7 @@
 
 	const filters: Array<'open' | 'overdue' | 'all'> = ['open', 'overdue', 'all'];
 
-	let selectedLoopId = $state<string | null>(null);
+	let selectedTaskId = $state<string | null>(null);
 	let listHost: HTMLDivElement | null = null;
 	let listHeight = $state(360);
 	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
@@ -50,8 +50,8 @@
 		});
 	});
 
-	const selected = $derived(sorted.find((loop) => loop.id === selectedLoopId) ?? null);
-	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedLoopId));
+	const selectedTask = $derived(sorted.find((loop) => loop.id === selectedTaskId) ?? null);
+	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedTaskId));
 	const openCount = $derived(loops.filter((loop) => loop.state === 'open').length);
 	const overdueCount = $derived(loops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
@@ -100,7 +100,7 @@
 					<LoopCard
 						loop={loop}
 						ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
-						onSelect={(id) => (selectedLoopId = id)}
+						onSelect={(id) => (selectedTaskId = id)}
 					/>
 				{/each}
 			{/if}
@@ -109,7 +109,7 @@
 	<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
 </section>
 
-<ThreadDetail loop={selected} events={selectedEvents} open={Boolean(selected)} onClose={() => (selectedLoopId = null)} />
+<TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
 
 <style>
 	.head-controls {

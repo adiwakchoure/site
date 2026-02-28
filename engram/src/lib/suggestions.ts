@@ -1,4 +1,4 @@
-import { addNote, closeLoop, createLoop, putLoopPerson, putPerson, putProject, setSuggestionStatus, updateLoop } from '$db/local';
+import { addUpdate, closeLoop, createLoop, putLoopPerson, putPerson, putProject, setSuggestionStatus, updateLoop } from '$db/local';
 import { db } from '$db/schema';
 import type { LoopPersonRole, SuggestedAction } from '$types/models';
 
@@ -80,7 +80,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 	}
 
 	if (item.action === 'add_note' && item.loopId && item.text) {
-		await addNote(item.loopId, item.text, dumpId);
+		await addUpdate(item.loopId, item.text, dumpId);
 		await markAccepted();
 		return;
 	}
@@ -88,7 +88,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 	if (item.action === 'add_note' && !item.loopId && item.text) {
 		const resolved = await resolveLoopId(item);
 		if (!resolved) return;
-		await addNote(resolved, item.text, dumpId);
+		await addUpdate(resolved, item.text, dumpId);
 		await markAccepted();
 		return;
 	}

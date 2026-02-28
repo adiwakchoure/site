@@ -2,7 +2,7 @@
 	import Empty from '$components/Empty.svelte';
 	import Pill from '$components/Pill.svelte';
 	import Badge from '$components/Badge.svelte';
-	import ThreadDetail from '$components/ThreadDetail.svelte';
+	import TaskDetail from '$components/TaskDetail.svelte';
 	import { eventsStore, loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
 	import { ageInDays } from '$lib/utils';
 	import type { LoopEvent } from '$types/models';
@@ -24,9 +24,9 @@
 			)
 		: 0);
 	const oldestOpen = $derived([...open].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))[0] ?? null);
-	let selectedLoopId = $state<string | null>(null);
-	const selectedLoop = $derived(loops.find((loop) => loop.id === selectedLoopId) ?? null);
-	const selectedEvents = $derived(events.filter((evt) => evt.loopId === selectedLoopId));
+	let selectedTaskId = $state<string | null>(null);
+	const selectedTask = $derived(loops.find((loop) => loop.id === selectedTaskId) ?? null);
+	const selectedEvents = $derived(events.filter((evt) => evt.loopId === selectedTaskId));
 
 	const ageBuckets = $derived.by(() => {
 		const buckets = { lt7: 0, lt14: 0, lt30: 0, gt30: 0 };
@@ -132,7 +132,7 @@
 			<Empty label="No archive yet" />
 		{:else}
 			{#each [...closed].sort((a, b) => +new Date(b.closedAt ?? b.updatedAt) - +new Date(a.closedAt ?? a.updatedAt)) as loop, i (loop.id)}
-				<button type="button" class="archive-item" style={`animation-delay:${i * 15}ms`} onclick={() => (selectedLoopId = loop.id)}>
+				<button type="button" class="archive-item" style={`animation-delay:${i * 15}ms`} onclick={() => (selectedTaskId = loop.id)}>
 					<h4>{loop.title}</h4>
 					<div class="archive-meta">
 						<Badge label={loop.closedReason ?? 'closed'} color="#3d8a4a" />
@@ -144,7 +144,7 @@
 	</section>
 {/if}
 
-<ThreadDetail loop={selectedLoop} events={selectedEvents} open={Boolean(selectedLoop)} onClose={() => (selectedLoopId = null)} />
+<TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
 
 <style>
 	.tabs-wrap {
