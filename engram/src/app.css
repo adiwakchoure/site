@@ -131,6 +131,11 @@ select {
 	min-height: 0;
 	overflow: auto;
 	padding: 10px 10px 8px;
+	position: relative;
+}
+
+.route-transition {
+	min-height: 100%;
 }
 
 .dump-slot {

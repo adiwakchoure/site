@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fly, fade } from 'svelte/transition';
 	import { Check, RotateCcw } from 'lucide-svelte';
 	import type { Loop } from '$types/models';
 	import { ageInDays, isOverdue } from '$lib/utils';
@@ -87,7 +88,9 @@
 	class="card-shell"
 	class:ghost
 	class:swiping={!ghost && swiping}
-	style={`--tone:${tone}; --swipe-x:${swipeX}px; --stagger:${stagger}ms; --swipe-progress:${swipeProgress};`}
+	style={`--tone:${tone}; --swipe-x:${swipeX}px; --swipe-progress:${swipeProgress};`}
+	in:fly={{ y: 8, duration: 220, delay: stagger }}
+	out:fade={{ duration: 150 }}
 >
 	<div
 		class="swipe-affordance"
@@ -161,8 +164,6 @@
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		box-shadow: var(--shadow-sm);
 		transition: all var(--dur-base) var(--ease-spring);
-		animation: cardIn 0.24s var(--ease-spring);
-		animation-delay: var(--stagger, 0ms);
 		text-align: left;
 		position: relative;
 		overflow: hidden;

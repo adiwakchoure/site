@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
 	import { RotateCw, X } from 'lucide-svelte';
 	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
 	import type { Loop, LoopEvent } from '$types/models';
 	import ActionBtn from '$components/ActionBtn.svelte';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
-	import Toast from '$components/Toast.svelte';
+	import { showToast } from '$stores/toast';
 
 	type OptimisticTimelineEntry = {
 		id: string;
@@ -42,8 +43,6 @@
 	let descriptionLoopId = $state<string | null>(null);
 	let optimistic = $state<OptimisticTimelineEntry[]>([]);
 	let updateInput = $state<HTMLInputElement | null>(null);
-	let toast = $state<string | null>(null);
-	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 	let dragging = $state(false);
 	let dragOffset = $state(0);
 	let dragStartY = 0;
@@ -126,14 +125,6 @@
 			hour: 'numeric',
 			minute: '2-digit'
 		});
-	}
-
-	function showToast(message: string) {
-		toast = message;
-		if (toastTimer) clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => {
-			toast = null;
-		}, 2200);
 	}
 
 	function startDrag(event: PointerEvent) {
@@ -240,7 +231,6 @@
 	}
 
 	onDestroy(() => {
-		if (toastTimer) clearTimeout(toastTimer);
 		if (!browser) return;
 		window.removeEventListener('pointermove', onDragMove);
 		window.removeEventListener('pointerup', onDragEnd);
@@ -257,6 +247,7 @@
 		style={`--overlay-alpha:${overlayAlpha};`}
 		onpointerdown={onClose}
 		onkeydown={(event) => event.key === 'Escape' && onClose()}
+		transition:fade={{ duration: 180 }}
 	>
 		<div
 			role="dialog"
@@ -267,6 +258,8 @@
 			class:dragging
 			style={`transform:${sheetTransform};`}
 			onpointerdown={(event) => event.stopPropagation()}
+			in:fly={{ y: 20, duration: 340 }}
+			out:fly={{ y: 20, duration: 200 }}
 		>
 			<div
 				class="drag-zone"
@@ -288,6 +281,11 @@
 						<Badge label="Overdue" color="#c0453a" />
 					{/if}
 					<span class="spacer"></span>
+					{#if loop.state === 'open'}
+						<button class="header-action close-action" type="button" onclick={resolveLoop}>Close loop</button>
+					{:else}
+						<button class="header-action reopen-action" type="button" onclick={reopenCurrentLoop}>Reopen</button>
+					{/if}
 					<IconBtn title="Close" size={30} onClick={onClose}><X size={14} /></IconBtn>
 				</div>
 				<h2 class="head-title">{loop.title}</h2>
@@ -384,17 +382,12 @@
 	</div>
 {/if}
 
-{#if toast}
-	<Toast message={toast} />
-{/if}
-
 <style>
 	.overlay {
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, var(--overlay-alpha, 0.2));
 		backdrop-filter: blur(8px);
-		animation: overlayIn var(--dur-fast) var(--ease);
 		z-index: 120;
 		display: flex;
 		align-items: flex-end;
@@ -409,7 +402,6 @@
 		box-shadow: var(--shadow-xl);
 		display: flex;
 		flex-direction: column;
-		animation: sheetUp var(--dur-slow) var(--ease-spring);
 		transition: transform var(--dur-base) var(--ease-spring);
 		will-change: transform;
 	}
@@ -451,6 +443,30 @@
 
 	.spacer {
 		flex: 1;
+	}
+
+	.header-action {
+		padding: 4px 10px;
+		border-radius: 8px;
+		border: 1px solid rgba(0, 0, 0, 0.06);
+		font-size: 11px;
+		font-weight: var(--weight-medium);
+		cursor: pointer;
+		transition: all 0.15s var(--ease-spring);
+	}
+
+	.header-action:active {
+		transform: scale(0.96);
+	}
+
+	.close-action {
+		background: color-mix(in srgb, var(--red) 10%, #fff);
+		color: var(--red);
+	}
+
+	.reopen-action {
+		background: rgba(255, 255, 255, 0.7);
+		color: var(--text2);
 	}
 
 	.head-title {

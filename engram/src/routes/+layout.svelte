@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { fly, fade } from 'svelte/transition';
 	import { AlertTriangle, BarChart3, Layers, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
+	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
 	import { loopsStore, pendingSyncStore, syncState } from '$stores/app';
+	import { toastMessage } from '$stores/toast';
 	import { isOverdue } from '$lib/utils';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
@@ -33,6 +36,35 @@
 				syncState.set('error');
 			}
 		}, 5000);
+
+		// Dev helper: call window.__seedDexie() in console to wipe + seed local DB
+		if (typeof window !== 'undefined') {
+			(window as unknown as Record<string, unknown>).__seedDexie = async () => {
+				const { db } = await import('$db/schema');
+				const res = await fetch('/api/seed');
+				const data = await res.json();
+				await db.transaction('rw', [db.loops, db.events, db.loopNotes, db.people, db.projects, db.loopPeople, db.dumps, db.suggestions, db.syncQueue], async () => {
+					await db.loops.clear();
+					await db.events.clear();
+					await db.loopNotes.clear();
+					await db.people.clear();
+					await db.projects.clear();
+					await db.loopPeople.clear();
+					await db.dumps.clear();
+					await db.suggestions.clear();
+					await db.syncQueue.clear();
+					await db.people.bulkPut(data.people);
+					await db.projects.bulkPut(data.projects);
+					await db.loops.bulkPut(data.loops);
+					await db.loopPeople.bulkPut(data.loopPeople);
+					await db.events.bulkPut(data.events);
+					await db.loopNotes.bulkPut(data.loopNotes);
+				});
+				console.log('Seeded: 3 people, 2 projects, 9 loops, 7 notes, 16 events');
+				location.reload();
+			};
+		}
+
 		return () => clearInterval(timer);
 	});
 </script>
@@ -86,7 +118,11 @@
 	</header>
 
 	<section class="content">
-		{@render children()}
+		{#key $page.url.pathname}
+			<div class="route-transition" in:fly={{ y: 6, duration: 180, delay: 60 }} out:fade={{ duration: 120 }}>
+				{@render children()}
+			</div>
+		{/key}
 	</section>
 
 	<div class="dump-slot">
@@ -103,3 +139,7 @@
 			{/each}
 	</nav>
 </main>
+
+{#if $toastMessage}
+	<Toast message={$toastMessage} />
+{/if}

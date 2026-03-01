@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte';
+	import { ArrowLeft } from 'lucide-svelte';
 	import Empty from '$components/Empty.svelte';
+	import Skeleton from '$components/Skeleton.svelte';
 	import LoopCard from '$components/LoopCard.svelte';
 	import Badge from '$components/Badge.svelte';
 	import PersonCard from '$components/PersonCard.svelte';
+	import StatCard from '$components/StatCard.svelte';
+	import SectionHeader from '$components/SectionHeader.svelte';
 	import { loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
 	import { ageInDays, isOverdue } from '$lib/utils';
 	import type { Loop, Person } from '$types/models';
@@ -13,29 +16,48 @@
 	const links = $derived($loopPeopleStore ?? []);
 	let selectedPersonId = $state<string | null>(null);
 
-	function stats(personId: string) {
-		const loopIds = links.filter((link) => link.personId === personId).map((link) => link.loopId);
-		const personLoops = loops.filter((loop) => loopIds.includes(loop.id));
-		const open = personLoops.filter((loop) => loop.state === 'open');
-		const closed = personLoops.filter((loop) => loop.state === 'closed');
-		const avgDays = closed.length
-			? Math.round(
-					closed.reduce((sum, loop) => sum + (+new Date(loop.closedAt ?? loop.updatedAt) - +new Date(loop.createdAt)), 0) /
-						closed.length /
-						(1000 * 60 * 60 * 24)
-				)
-			: 0;
-		const longest = open.length
-			? Math.max(...open.map((loop) => Math.floor((Date.now() - +new Date(loop.createdAt)) / (1000 * 60 * 60 * 24))))
-			: 0;
-		return { openCount: open.length, closedCount: closed.length, avgDays, longest, openLoops: open as Loop[], closedLoops: closed as Loop[] };
+	const statsMap = $derived.by(() => {
+		const map = new Map<string, { openCount: number; closedCount: number; avgDays: number; longest: number; openLoops: Loop[]; closedLoops: Loop[] }>();
+		const loopById = new Map(loops.map((l) => [l.id, l]));
+		const personLoopIds = new Map<string, string[]>();
+		for (const link of links) {
+			const arr = personLoopIds.get(link.personId) ?? [];
+			arr.push(link.loopId);
+			personLoopIds.set(link.personId, arr);
+		}
+		for (const person of people) {
+			const ids = personLoopIds.get(person.id) ?? [];
+			const personLoops = ids.map((id) => loopById.get(id)).filter(Boolean) as Loop[];
+			const open = personLoops.filter((l) => l.state === 'open');
+			const closed = personLoops.filter((l) => l.state === 'closed');
+			const avgDays = closed.length
+				? Math.round(
+						closed.reduce((sum, l) => sum + (+new Date(l.closedAt ?? l.updatedAt) - +new Date(l.createdAt)), 0) /
+							closed.length /
+							(1000 * 60 * 60 * 24)
+					)
+				: 0;
+			const longest = open.length
+				? Math.max(...open.map((l) => Math.floor((Date.now() - +new Date(l.createdAt)) / (1000 * 60 * 60 * 24))))
+				: 0;
+			map.set(person.id, { openCount: open.length, closedCount: closed.length, avgDays, longest, openLoops: open, closedLoops: closed });
+		}
+		return map;
+	});
+
+	function getStats(personId: string) {
+		return statsMap.get(personId) ?? { openCount: 0, closedCount: 0, avgDays: 0, longest: 0, openLoops: [], closedLoops: [] };
 	}
 
 	const selectedPerson = $derived((people as Person[]).find((person) => person.id === selectedPersonId) ?? null);
+	const selectedStats = $derived(selectedPerson ? getStats(selectedPerson.id) : null);
+	const loading = $derived($peopleStore === null);
 </script>
 
-{#if people.length === 0}
-	<Empty label="No people yet" icon={true} />
+{#if loading}
+	<Skeleton lines={4} />
+{:else if people.length === 0}
+	<Empty label="No people yet" icon={true} hint="People are added when you mention them in a dump" />
 {:else}
 	{#if !selectedPerson}
 		<section class="list">
@@ -43,17 +65,17 @@
 				<div style={`animation-delay:${i * 40}ms`}>
 					<PersonCard
 						person={person}
-						openCount={stats(person.id).openCount}
-						overdueCount={stats(person.id).openLoops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length}
+						openCount={getStats(person.id).openCount}
+						overdueCount={getStats(person.id).openLoops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length}
 						onSelect={() => (selectedPersonId = person.id)}
 					/>
 				</div>
 			{/each}
 		</section>
-	{:else}
+	{:else if selectedStats}
 		<section class="detail">
 			<button class="back" type="button" onclick={() => (selectedPersonId = null)}>
-				<ChevronDown size={13} />
+				<ArrowLeft size={13} />
 				Back
 			</button>
 			<header>
@@ -61,25 +83,25 @@
 				<p>{selectedPerson.rel || 'contact'}</p>
 			</header>
 			<div class="stat-grid">
-				<article><strong>{stats(selectedPerson.id).openCount}</strong><span>Open</span></article>
-				<article><strong>{stats(selectedPerson.id).closedCount}</strong><span>Closed</span></article>
-				<article><strong>{stats(selectedPerson.id).avgDays}d</strong><span>Avg</span></article>
-				<article><strong>{stats(selectedPerson.id).longest}d</strong><span>Longest</span></article>
+				<StatCard label="Open" value={selectedStats.openCount} color="var(--accent)" />
+				<StatCard label="Closed" value={selectedStats.closedCount} color="var(--green)" />
+				<StatCard label="Avg" value="{selectedStats.avgDays}d" color="var(--purple)" />
+				<StatCard label="Longest" value="{selectedStats.longest}d" color="var(--red)" />
 			</div>
 			<section>
-				<h4>Open loops</h4>
-				{#if stats(selectedPerson.id).openLoops.length === 0}
+				<SectionHeader label="Open loops" />
+				{#if selectedStats.openLoops.length === 0}
 					<p class="empty-inline">No open loops.</p>
 				{:else}
-					{#each stats(selectedPerson.id).openLoops as loop (loop.id)}
+					{#each selectedStats.openLoops as loop (loop.id)}
 						<LoopCard loop={loop} onSelect={() => {}} />
 					{/each}
 				{/if}
 			</section>
 			<section>
-				<h4>Resolved</h4>
+				<SectionHeader label="Resolved" />
 				<div class="resolved">
-					{#each stats(selectedPerson.id).closedLoops as loop (loop.id)}
+					{#each selectedStats.closedLoops as loop (loop.id)}
 						<div class="resolved-item">
 							<div>{loop.title}</div>
 							<Badge label={loop.closedReason ?? 'closed'} color="#3d8a4a" />
@@ -114,10 +136,6 @@
 		font-size: 12px;
 	}
 
-	.back :global(svg) {
-		transform: rotate(90deg);
-	}
-
 	h2 {
 		margin: 0;
 		font-family: var(--font-serif);
@@ -136,37 +154,6 @@
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 8px;
-	}
-
-	.stat-grid article {
-		padding: 12px;
-		border-radius: 12px;
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		background: rgba(255, 255, 255, 0.5);
-		box-shadow: var(--shadow-sm);
-		animation: cardIn 0.24s var(--ease-spring);
-	}
-
-	.stat-grid strong {
-		font-family: var(--font-mono);
-		font-size: 18px;
-		font-weight: 300;
-	}
-
-	.stat-grid span {
-		display: block;
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-		color: var(--text3);
-	}
-
-	h4 {
-		margin: 0 0 8px;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps-wide);
-		color: var(--text3);
 	}
 
 	.resolved {

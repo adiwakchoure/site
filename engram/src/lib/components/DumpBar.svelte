@@ -8,7 +8,7 @@
 	import { haptic } from '$lib/utils';
 	import type { SuggestedAction } from '$types/models';
 	import IconBtn from '$components/IconBtn.svelte';
-	import Toast from '$components/Toast.svelte';
+	import { showToast } from '$stores/toast';
 	import Orb from '$components/dump/Orb.svelte';
 	import PlaceholderText from '$components/dump/PlaceholderText.svelte';
 	import Waveform from '$components/dump/Waveform.svelte';
@@ -28,8 +28,6 @@
 
 	// --- Shared state ---
 	let text = $state('');
-	let toast = $state<string | null>(null);
-	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 	let durationSec = $state(0);
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
 	let allDone = $state(false);
@@ -367,14 +365,6 @@
 		toResting();
 	}
 
-	function showToast(message: string) {
-		toast = message;
-		if (toastTimer) clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => {
-			toast = null;
-		}, 2500);
-	}
-
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && mode.kind !== 'resting') {
 			e.preventDefault();
@@ -392,7 +382,6 @@
 		if (rafId !== null) cancelAnimationFrame(rafId);
 		mediaStream?.getTracks().forEach((t) => t.stop());
 		if (audioCtx) void audioCtx.close();
-		if (toastTimer) clearTimeout(toastTimer);
 		if (durationInterval) clearInterval(durationInterval);
 		if (revealTimer) clearInterval(revealTimer);
 		if (slowTimer) clearTimeout(slowTimer);
@@ -527,10 +516,6 @@
 		/>
 	{/if}
 </section>
-
-{#if toast}
-	<Toast message={toast} />
-{/if}
 
 <style>
 	/* --- Pill container --- */

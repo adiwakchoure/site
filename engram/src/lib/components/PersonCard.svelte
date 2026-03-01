@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fly, fade } from 'svelte/transition';
 	import { ChevronRight } from 'lucide-svelte';
 	import type { Person } from '$types/models';
 
@@ -60,7 +61,6 @@
 		padding: 12px;
 		box-shadow: var(--shadow-sm);
 		transition: all var(--dur-base) var(--ease-spring);
-		animation: cardIn 0.26s var(--ease-spring);
 		text-align: left;
 	}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fly, fade, scale } from 'svelte/transition';
 	import { Check, X, CircleCheck, ArrowUpRight, Plus, Pencil, UserPlus, FolderPlus } from 'lucide-svelte';
 	import type { SuggestedAction } from '$types/models';
 	import Badge from '$components/Badge.svelte';
@@ -14,9 +15,6 @@
 		onDismiss: () => void;
 		stagger?: number;
 	} = $props();
-
-	let animatingAccept = $state(false);
-	let animatingDismiss = $state(false);
 
 	const iconMap: Record<string, typeof Check> = {
 		close_loop: CircleCheck,
@@ -46,13 +44,11 @@
 	};
 
 	function handleAccept() {
-		animatingAccept = true;
-		setTimeout(() => onAccept(), 500);
+		onAccept();
 	}
 
 	function handleDismiss() {
-		animatingDismiss = true;
-		setTimeout(() => onDismiss(), 200);
+		onDismiss();
 	}
 
 	const ActionIcon = $derived(iconMap[item.action] ?? Plus);
@@ -60,9 +56,9 @@
 
 <article
 	class="card"
-	class:accepting={animatingAccept}
-	class:dismissing={animatingDismiss}
 	style={`--stagger:${stagger}ms`}
+	in:fly={{ y: 8, duration: 250, delay: stagger }}
+	out:fly={{ x: 30, duration: 200 }}
 >
 	<div class="head">
 		<div class="head-left">
@@ -112,29 +108,7 @@
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		box-shadow: var(--shadow-sm);
 		padding: 12px;
-		animation: cardIn 0.25s var(--ease-spring) backwards;
-		animation-delay: var(--stagger);
-		transition:
-			opacity var(--dur-fast) var(--ease),
-			transform 0.2s var(--ease),
-			max-height 0.25s var(--ease-spring),
-			background var(--dur-fast) var(--ease),
-			border-color var(--dur-fast) var(--ease);
 		overflow: hidden;
-	}
-
-	.card.accepting {
-		border-color: color-mix(in srgb, var(--green) 30%, transparent);
-		background: color-mix(in srgb, var(--green) 8%, #fff);
-		max-height: 0 !important;
-		padding: 0 12px;
-		opacity: 0;
-		margin: 0;
-	}
-
-	.card.dismissing {
-		transform: translateX(30px);
-		opacity: 0;
 	}
 
 	.head {

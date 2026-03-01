@@ -1,13 +1,16 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { onMount } from 'svelte';
 	import { Clock } from 'lucide-svelte';
 	import LoopCard from '$components/LoopCard.svelte';
 	import Pill from '$components/Pill.svelte';
 	import TaskDetail from '$components/TaskDetail.svelte';
 	import Pulse from '$components/Pulse.svelte';
 	import Empty from '$components/Empty.svelte';
-	import Toast from '$components/Toast.svelte';
+	import Skeleton from '$components/Skeleton.svelte';
 	import { closeLoop, reopenLoop } from '$db/local';
 	import { activeFilter, eventsStore, loopSort, loopsStore } from '$stores/app';
+	import { showToast } from '$stores/toast';
 	import { isOverdue } from '$lib/utils';
 	import type { Loop, LoopEvent } from '$types/models';
 
@@ -17,8 +20,17 @@
 	let listHost: HTMLDivElement | null = null;
 	let listHeight = $state(360);
 	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
-	let toast = $state<string | null>(null);
-	let toastTimer: ReturnType<typeof setTimeout> | null = null;
+	let pulseHint = $state(false);
+
+	onMount(() => {
+		if (!browser) return;
+		const key = 'engram:pulse-hint-shown';
+		if (!localStorage.getItem(key)) {
+			pulseHint = true;
+			localStorage.setItem(key, '1');
+			setTimeout(() => { pulseHint = false; }, 4000);
+		}
+	});
 
 	const loops = $derived(($loopsStore ?? []) as Loop[]);
 
@@ -71,14 +83,6 @@
 		return () => observer.disconnect();
 	});
 
-	function showToast(message: string) {
-		toast = message;
-		if (toastTimer) clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => {
-			toast = null;
-		}, 2200);
-	}
-
 	async function onSwipeAction(loopId: string, action: 'close' | 'reopen') {
 		try {
 			if (action === 'close') {
@@ -92,8 +96,13 @@
 			showToast(action === 'close' ? 'Could not close loop' : 'Could not reopen loop');
 		}
 	}
+
+	const loading = $derived($loopsStore === null);
 </script>
 
+{#if loading}
+	<Skeleton lines={5} />
+{:else}
 <section class="head-controls">
 	{#if scrub}
 		<div class="travel-banner">
@@ -131,7 +140,7 @@
 	<div class="list-wrap" bind:this={listHost}>
 		<div class="list">
 			{#if sorted.length === 0}
-				<Empty label="No loops in this view" icon={true} />
+				<Empty label="No loops in this view" icon={true} hint="Use the dump bar below to capture what's on your mind" />
 			{:else}
 				{#each sorted as loop, index (loop.id)}
 					<LoopCard
@@ -147,12 +156,13 @@
 	</div>
 	<div class="pulse-wrap">
 		<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
+		{#if pulseHint}
+			<div class="pulse-hint">Drag to time-travel</div>
+		{/if}
 	</div>
 </section>
 
 <TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
-{#if toast}
-	<Toast message={toast} />
 {/if}
 
 <style>
@@ -240,12 +250,29 @@
 	}
 
 	.pulse-wrap {
-		opacity: 0.58;
+		position: relative;
+		opacity: 0.72;
 		filter: saturate(0.8);
 		transition: opacity var(--dur-base) var(--ease);
 	}
 
 	.pulse-wrap:hover {
 		opacity: 0.82;
+	}
+
+	.pulse-hint {
+		position: absolute;
+		bottom: 16px;
+		right: -4px;
+		background: rgba(26, 26, 26, 0.88);
+		backdrop-filter: blur(10px);
+		color: #f2f0ed;
+		font-size: 9px;
+		font-family: var(--font-mono);
+		padding: 4px 8px;
+		border-radius: 6px;
+		white-space: nowrap;
+		pointer-events: none;
+		animation: fadeUp 0.3s var(--ease-spring), fadeIn 0.3s var(--ease);
 	}
 </style>
