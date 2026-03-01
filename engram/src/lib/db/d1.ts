@@ -9,31 +9,32 @@ export const normalizeForDb = (obj: Record<string, unknown>) =>
 export const normalizeForClient = (obj: Record<string, unknown>) =>
 	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toCamel(key), val]));
 
-export async function rowExists(env: App.Platform['env'], table: string, id: unknown) {
+export async function rowExists(env: App.Platform['env'], table: string, id: unknown, ownerId: string) {
 	if (typeof id !== 'string' || !id) return false;
-	const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`).bind(id).first();
+	const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? AND owner_id = ? LIMIT 1`).bind(id, ownerId).first();
 	return Boolean(row);
 }
 
 export async function normalizeForeignKeys(
 	env: App.Platform['env'],
 	table: string,
-	data: Record<string, unknown>
+	data: Record<string, unknown>,
+	ownerId: string
 ) {
 	if (table === 'events') {
-		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
-		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id, ownerId))) data.loop_id = null;
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id, ownerId))) data.dump_id = null;
 	}
 	if (table === 'suggestions') {
-		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id, ownerId))) data.dump_id = null;
 	}
 	if (table === 'loops') {
-		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id)))
+		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id, ownerId)))
 			data.project_id = null;
-		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id)))
+		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id, ownerId)))
 			data.parent_id = null;
 	}
 	if (table === 'loop_notes') {
-		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id, ownerId))) data.loop_id = null;
 	}
 }

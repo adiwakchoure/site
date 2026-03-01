@@ -313,7 +313,7 @@ interface FullContext {
 	overdueCount: number;
 }
 
-async function loadActiveContext(env: App.Platform['env']): Promise<FullContext> {
+async function loadActiveContext(env: App.Platform['env'], ownerId: string): Promise<FullContext> {
 	if (!env?.DB) {
 		return { openLoops: [], closedLoops: [], people: [], projects: [], loopPeople: [], recentNotes: [], recentEvents: [], openCount: 0, overdueCount: 0 };
 	}
@@ -321,35 +321,37 @@ async function loadActiveContext(env: App.Platform['env']): Promise<FullContext>
 	const [openLoops, closedLoops, people, projects, loopPeople, recentNotes, recentEvents] = await Promise.all([
 		env.DB.prepare(
 			`SELECT id, title, body, energy, priority, deadline, project_id, updated_at, created_at, NULL as closed_reason, NULL as closed_at
-       FROM loops WHERE state = 'open' ORDER BY updated_at DESC`
-		).all<LoopRow>(),
+       FROM loops WHERE owner_id = ? AND state = 'open' ORDER BY updated_at DESC`
+		).bind(ownerId).all<LoopRow>(),
 		env.DB.prepare(
 			`SELECT id, title, body, energy, priority, deadline, project_id, updated_at, created_at, closed_reason, closed_at
-       FROM loops WHERE state = 'closed' ORDER BY closed_at DESC LIMIT 30`
-		).all<LoopRow>(),
+       FROM loops WHERE owner_id = ? AND state = 'closed' ORDER BY closed_at DESC LIMIT 30`
+		).bind(ownerId).all<LoopRow>(),
 		env.DB.prepare(
-			`SELECT id, name, rel FROM people ORDER BY name ASC`
-		).all<PersonRow>(),
+			`SELECT id, name, rel FROM people WHERE owner_id = ? ORDER BY name ASC`
+		).bind(ownerId).all<PersonRow>(),
 		env.DB.prepare(
-			`SELECT id, name, color, emoji, archived FROM projects ORDER BY archived ASC, name ASC`
-		).all<ProjectRow>(),
+			`SELECT id, name, color, emoji, archived FROM projects WHERE owner_id = ? ORDER BY archived ASC, name ASC`
+		).bind(ownerId).all<ProjectRow>(),
 		env.DB.prepare(
 			`SELECT lp.loop_id, lp.person_id, p.name as person_name, lp.role
-       FROM loop_person lp JOIN people p ON p.id = lp.person_id`
-		).all<LoopPersonRow>(),
+       FROM loop_person lp JOIN people p ON p.id = lp.person_id
+       WHERE lp.owner_id = ? AND p.owner_id = ?`
+		).bind(ownerId, ownerId).all<LoopPersonRow>(),
 		env.DB.prepare(
 			`SELECT ln.loop_id, ln.body, ln.created_at
        FROM loop_notes ln
-       JOIN loops l ON l.id = ln.loop_id AND l.state = 'open'
+       JOIN loops l ON l.id = ln.loop_id AND l.owner_id = ? AND l.state = 'open'
+       WHERE ln.owner_id = ?
        ORDER BY ln.created_at DESC LIMIT 100`
-		).all<RecentNoteRow>(),
+		).bind(ownerId, ownerId).all<RecentNoteRow>(),
 		env.DB.prepare(
 			`SELECT e.loop_id, e.kind, e.body, e.created_at
        FROM events e
-       JOIN loops l ON l.id = e.loop_id AND l.state = 'open'
-       WHERE e.kind IN ('noted', 'updated', 'created')
+       JOIN loops l ON l.id = e.loop_id AND l.owner_id = ? AND l.state = 'open'
+       WHERE e.owner_id = ? AND e.kind IN ('noted', 'updated', 'created')
        ORDER BY e.created_at DESC LIMIT 100`
-		).all<RecentEventRow>()
+		).bind(ownerId, ownerId).all<RecentEventRow>()
 	]);
 
 	const open = openLoops.results ?? [];
@@ -452,13 +454,16 @@ function formatContextBlock(ctx: FullContext): string {
 	return sections.join('\n');
 }
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ locals, request, platform }) => {
+	const userId = locals.userId;
+	if (!userId) return json({ error: 'Unauthorized' }, { status: 401 });
+
 	const env = platform?.env;
 	await ensureD1Schema(env as App.Platform['env'] | undefined);
 	const groqApiKey = resolveGroqApiKey(env as App.Platform['env'] | undefined);
 	const aiAvailable = Boolean(groqApiKey);
 	const contentType = request.headers.get('content-type') ?? '';
-	const context = await loadActiveContext(env as App.Platform['env']);
+	const context = await loadActiveContext(env as App.Platform['env'], userId);
 
 	let text = '';
 	let source: 'text' | 'voice' = 'text';

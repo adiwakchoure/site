@@ -3,20 +3,23 @@ import type { RequestHandler } from './$types';
 import { ensureD1Schema } from '$db/bootstrap';
 import { normalizeForClient } from '$db/d1';
 
-export const GET: RequestHandler = async ({ platform }) => {
+export const GET: RequestHandler = async ({ locals, platform }) => {
+	const userId = locals.userId;
+	if (!userId) return json({ error: 'Unauthorized' }, { status: 401 });
+
 	const env = platform?.env;
 	if (!env?.DB) return json({ error: 'D1 binding missing' }, { status: 500 });
 	await ensureD1Schema(env as App.Platform['env'] | undefined);
 
 	const [loops, events, loopNotes, people, projects, dumps, suggestions, loopPeople] = await Promise.all([
-		env.DB.prepare('SELECT * FROM loops').all(),
-		env.DB.prepare('SELECT * FROM events').all(),
-		env.DB.prepare('SELECT * FROM loop_notes').all(),
-		env.DB.prepare('SELECT * FROM people').all(),
-		env.DB.prepare('SELECT * FROM projects').all(),
-		env.DB.prepare('SELECT * FROM dumps').all(),
-		env.DB.prepare('SELECT * FROM suggestions').all(),
-		env.DB.prepare('SELECT * FROM loop_person').all()
+		env.DB.prepare('SELECT * FROM loops WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM events WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM loop_notes WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM people WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM projects WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM dumps WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM suggestions WHERE owner_id = ?').bind(userId).all(),
+		env.DB.prepare('SELECT * FROM loop_person WHERE owner_id = ?').bind(userId).all()
 	]);
 
 	const norm = (rows: Record<string, unknown>[]) => rows.map((r) => normalizeForClient(r));

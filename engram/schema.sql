@@ -2,6 +2,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS loops (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   title         TEXT NOT NULL,
   body          TEXT DEFAULT '',
 
@@ -28,11 +29,12 @@ CREATE TABLE IF NOT EXISTS loops (
 
 CREATE TABLE IF NOT EXISTS events (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   loop_id       TEXT REFERENCES loops(id) ON DELETE CASCADE,
 
   kind          TEXT NOT NULL
                   CHECK(kind IN (
-                    'created', 'closed', 'reopened', 'updated', 'noted'
+                    'created', 'closed', 'reopened', 'updated', 'noted', 'deleted'
                   )),
 
   body          TEXT,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS loop_notes (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   loop_id       TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
   body          TEXT NOT NULL,
   created_at    TEXT NOT NULL,
@@ -53,21 +56,24 @@ CREATE TABLE IF NOT EXISTS loop_notes (
 
 CREATE TABLE IF NOT EXISTS people (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   name          TEXT NOT NULL,
   rel           TEXT DEFAULT '',
   created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS loop_person (
+  owner_id      TEXT NOT NULL,
   loop_id       TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
   person_id     TEXT NOT NULL REFERENCES people(id),
   role          TEXT DEFAULT 'involved'
                   CHECK(role IN ('involved', 'waiting_on', 'delegated_to')),
-  PRIMARY KEY (loop_id, person_id)
+  PRIMARY KEY (owner_id, loop_id, person_id)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   name          TEXT NOT NULL,
   color         TEXT DEFAULT '#a0714a',
   emoji         TEXT,
@@ -77,6 +83,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS dumps (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   raw           TEXT NOT NULL,
   transcript    TEXT,
   source        TEXT NOT NULL DEFAULT 'text'
@@ -87,6 +94,7 @@ CREATE TABLE IF NOT EXISTS dumps (
 
 CREATE TABLE IF NOT EXISTS suggestions (
   id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
   dump_id       TEXT REFERENCES dumps(id) ON DELETE SET NULL,
   action        TEXT NOT NULL,
   payload       TEXT NOT NULL,
@@ -96,13 +104,16 @@ CREATE TABLE IF NOT EXISTS suggestions (
   resolved_at   TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_loops_active ON loops(state, energy) WHERE state = 'open';
-CREATE INDEX IF NOT EXISTS idx_loops_deadline ON loops(deadline) WHERE deadline IS NOT NULL AND state = 'open';
-CREATE INDEX IF NOT EXISTS idx_loops_project ON loops(project_id) WHERE project_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_loops_parent ON loops(parent_id) WHERE parent_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_events_loop ON events(loop_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
-CREATE INDEX IF NOT EXISTS idx_events_sequence ON events(loop_id, sequence);
-CREATE INDEX IF NOT EXISTS idx_loop_notes_loop ON loop_notes(loop_id, updated_at);
-CREATE INDEX IF NOT EXISTS idx_loop_person ON loop_person(person_id);
-CREATE INDEX IF NOT EXISTS idx_suggestions_dump ON suggestions(dump_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_loops_owner_state_energy ON loops(owner_id, state, energy);
+CREATE INDEX IF NOT EXISTS idx_loops_owner_deadline ON loops(owner_id, deadline) WHERE deadline IS NOT NULL AND state = 'open';
+CREATE INDEX IF NOT EXISTS idx_loops_owner_project ON loops(owner_id, project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loops_owner_parent ON loops(owner_id, parent_id) WHERE parent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_events_owner_loop_created ON events(owner_id, loop_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_owner_kind_created ON events(owner_id, kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_owner_loop_sequence ON events(owner_id, loop_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_loop_notes_owner_loop_updated ON loop_notes(owner_id, loop_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_loop_person_owner_person ON loop_person(owner_id, person_id);
+CREATE INDEX IF NOT EXISTS idx_people_owner_name ON people(owner_id, name);
+CREATE INDEX IF NOT EXISTS idx_projects_owner_name ON projects(owner_id, name);
+CREATE INDEX IF NOT EXISTS idx_dumps_owner_created ON dumps(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_suggestions_owner_dump_status_created ON suggestions(owner_id, dump_id, status, created_at);

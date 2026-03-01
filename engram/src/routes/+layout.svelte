@@ -12,7 +12,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 
-	let { children } = $props();
+	let { data, children } = $props();
 	const tabs = [
 		{ href: '/loops', label: 'Loops', icon: Layers },
 		{ href: '/people', label: 'People', icon: Users },
@@ -123,6 +123,9 @@
 	<header class="app-header">
 		<h1 class="app-title">engram</h1>
 		<div class="app-open-meta">
+			{#if data.user?.email}
+				<span>{data.user.email}</span>
+			{/if}
 			<span>{openCount} open</span>
 			{#if overdueCount > 0}
 				<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
@@ -133,6 +136,7 @@
 			{#if $pendingSyncStore}
 				<span class="sr-only">{$syncState}</span>
 			{/if}
+			<a href="/api/auth/logout">Sign out</a>
 		</div>
 	</header>
 
