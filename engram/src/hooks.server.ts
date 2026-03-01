@@ -2,9 +2,10 @@ import { kindeAuthClient, sessionHooks, type SessionManager } from '@kinde-oss/k
 import { redirect, type Handle } from '@sveltejs/kit';
 
 const AUTH_ROUTE_PREFIX = '/api/auth';
+const LOGIN_ROUTE = '/login';
 
 function isPublicPath(pathname: string): boolean {
-	return pathname.startsWith('/_app') || pathname === '/favicon.ico' || pathname === '/manifest.webmanifest';
+	return pathname.startsWith('/_app') || pathname === '/favicon.ico' || pathname === '/manifest.webmanifest' || pathname === LOGIN_ROUTE;
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -35,6 +36,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
+	if (isAuthenticated && pathname === LOGIN_ROUTE) {
+		throw redirect(302, '/loops');
+	}
+
 	if (!isAuthenticated && !isAuthRoute && !isPublicPath(pathname)) {
 		if (pathname.startsWith('/api/')) {
 			return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -44,7 +49,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 
 		const destination = `${pathname}${event.url.search}`;
-		throw redirect(302, `/api/auth/login?post_login_redirect_url=${encodeURIComponent(destination)}`);
+		throw redirect(302, `/login?next=${encodeURIComponent(destination)}`);
 	}
 
 	return resolve(event);

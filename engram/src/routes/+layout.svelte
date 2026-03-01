@@ -23,15 +23,17 @@
 	const overdueCount = $derived(($loopsStore ?? []).filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
 	onMount(() => {
+		const isLoginRoute = () => window.location.pathname === '/login';
+
 		// Boot: full refresh from D1 (Dexie/liveQuery provides instant render from cache)
-		if (navigator.onLine) {
+		if (navigator.onLine && !isLoginRoute()) {
 			syncState.set('syncing');
 			refreshFromServer().then((ok) => syncState.set(ok ? 'synced' : 'error'));
 		}
 
 		// Periodic refresh: catch any external D1 changes
 		const timer = setInterval(async () => {
-			if (!navigator.onLine) {
+			if (!navigator.onLine || isLoginRoute()) {
 				syncState.set('offline');
 				return;
 			}
@@ -42,6 +44,7 @@
 
 		// Reconnect handler
 		const onOnline = async () => {
+			if (isLoginRoute()) return;
 			syncState.set('syncing');
 			await syncNow();
 			await refreshFromServer();
@@ -119,50 +122,54 @@
 	<meta name="theme-color" content="#faf9f7" />
 </svelte:head>
 
-<main class="app-shell">
-	<header class="app-header">
-		<h1 class="app-title">engram</h1>
-		<div class="app-open-meta">
-			{#if data.user?.email}
-				<span>{data.user.email}</span>
-			{/if}
-			<span>{openCount} open</span>
-			{#if overdueCount > 0}
-				<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
-					<AlertTriangle size={12} />
-					{overdueCount}
-				</span>
-			{/if}
-			{#if $pendingSyncStore}
-				<span class="sr-only">{$syncState}</span>
-			{/if}
-			<a href="/api/auth/logout">Sign out</a>
-		</div>
-	</header>
-
-	<section class="content">
-		{#key $page.url.pathname}
-			<div class="route-transition" in:fade={{ duration: 160, delay: 80 }} out:fade={{ duration: 100 }}>
-				{@render children()}
+{#if $page.url.pathname === '/login'}
+	{@render children()}
+{:else}
+	<main class="app-shell">
+		<header class="app-header">
+			<h1 class="app-title">engram</h1>
+			<div class="app-open-meta">
+				{#if data.user?.email}
+					<span>{data.user.email}</span>
+				{/if}
+				<span>{openCount} open</span>
+				{#if overdueCount > 0}
+					<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
+						<AlertTriangle size={12} />
+						{overdueCount}
+					</span>
+				{/if}
+				{#if $pendingSyncStore}
+					<span class="sr-only">{$syncState}</span>
+				{/if}
+				<a href="/api/auth/logout">Sign out</a>
 			</div>
-		{/key}
-	</section>
+		</header>
 
-	<div class="dump-slot">
-		<DumpBar />
-	</div>
+		<section class="content">
+			{#key $page.url.pathname}
+				<div class="route-transition" in:fade={{ duration: 160, delay: 80 }} out:fade={{ duration: 100 }}>
+					{@render children()}
+				</div>
+			{/key}
+		</section>
 
-	<nav class="tab-bar">
-		{#each tabs as tab}
-			<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
-				<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
-				<span>{tab.label}</span>
-				<span class="tab-underline"></span>
-			</a>
-			{/each}
-	</nav>
-</main>
+		<div class="dump-slot">
+			<DumpBar />
+		</div>
 
-{#if $toastMessage}
-	<Toast message={$toastMessage} />
+		<nav class="tab-bar">
+			{#each tabs as tab}
+				<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
+					<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+					<span>{tab.label}</span>
+					<span class="tab-underline"></span>
+				</a>
+				{/each}
+		</nav>
+	</main>
+
+	{#if $toastMessage}
+		<Toast message={$toastMessage} />
+	{/if}
 {/if}
