@@ -6,7 +6,7 @@
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
-	import { loopsStore, pendingSyncStore, syncState } from '$stores/app';
+	import { loopsStore, pendingSyncStore, syncState, refreshFromServer } from '$stores/app';
 	import { toastMessage } from '$stores/toast';
 	import { isOverdue } from '$lib/utils';
 	import favicon from '$lib/assets/favicon.svg';
@@ -23,19 +23,34 @@
 	const overdueCount = $derived(($loopsStore ?? []).filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
 	onMount(() => {
+		// Boot: full refresh from D1 (Dexie/liveQuery provides instant render from cache)
+		if (navigator.onLine) {
+			syncState.set('syncing');
+			refreshFromServer().then((ok) => syncState.set(ok ? 'synced' : 'error'));
+		}
+
+		// Periodic refresh: catch any external D1 changes
 		const timer = setInterval(async () => {
 			if (!navigator.onLine) {
 				syncState.set('offline');
 				return;
 			}
-			try {
-				syncState.set('syncing');
-				await syncNow();
-				syncState.set('synced');
-			} catch {
-				syncState.set('error');
-			}
-		}, 5000);
+			syncState.set('syncing');
+			const ok = await refreshFromServer();
+			syncState.set(ok ? 'synced' : 'error');
+		}, 10_000);
+
+		// Reconnect handler
+		const onOnline = async () => {
+			syncState.set('syncing');
+			await syncNow();
+			await refreshFromServer();
+			syncState.set('synced');
+		};
+		const onOffline = () => syncState.set('offline');
+
+		window.addEventListener('online', onOnline);
+		window.addEventListener('offline', onOffline);
 
 		// Dev helper: call window.__seedDexie() in console to wipe + seed local DB
 		if (typeof window !== 'undefined') {
@@ -65,7 +80,11 @@
 			};
 		}
 
-		return () => clearInterval(timer);
+		return () => {
+			clearInterval(timer);
+			window.removeEventListener('online', onOnline);
+			window.removeEventListener('offline', onOffline);
+		};
 	});
 </script>
 

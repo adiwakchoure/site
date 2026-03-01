@@ -17,7 +17,7 @@ const suggestionSchema = z.object({
 	energy: z.enum(['active', 'waiting', 'someday']).optional(),
 	deadline: z.string().nullable().optional(),
 	project: z.string().nullable().optional(),
-	people: z.array(z.object({ name: z.string(), role: z.enum(['involved', 'waiting_on', 'delegated_to']).optional() })).optional(),
+	people: z.array(z.object({ name: z.string(), role: z.enum(['involved', 'waiting_on', 'delegated_to']).optional(), rel: z.string().optional() })).optional(),
 	tags: z.array(z.string()).optional(),
 	reason: z.enum(['done', 'dropped', 'delegated', 'irrelevant']).optional(),
 	text: z.string().optional(),
@@ -183,7 +183,7 @@ function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallb
 	const cleaned: SuggestedAction[] = [];
 	for (const item of base) {
 		const confidence: SuggestedAction['confidence'] = item.confidence ?? 'medium';
-		const people = item.people?.map((person) => ({ name: person.name, role: person.role ?? 'involved' }));
+		const people = item.people?.map((person) => ({ name: person.name, role: person.role ?? 'involved', rel: person.rel }));
 		if (item.action === 'open_loop') {
 			const title = item.title?.trim();
 			if (!title) continue;
@@ -257,7 +257,7 @@ async function transcribeWithGroq(audio: File, apiKey: string): Promise<string> 
 	return typeof data.text === 'string' ? data.text : '';
 }
 
-async function runReasoningWithGroq(prompt: string, temperature: number, apiKey: string): Promise<string> {
+async function runReasoningWithGroq(systemMessage: string, userMessage: string, temperature: number, apiKey: string): Promise<string> {
 	const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
 		method: 'POST',
 		headers: {
@@ -267,8 +267,8 @@ async function runReasoningWithGroq(prompt: string, temperature: number, apiKey:
 		body: JSON.stringify({
 			model: GROQ_REASONING_MODEL,
 			messages: [
-				{ role: 'system', content: 'You parse brain dumps into structured actions. Return strictly valid JSON with shape: { "suggestions": [...] }. Extract every actionable item. Always look for deadlines (explicit dates or relative phrases like "by Friday", "next week", "ASAP") and people names. Match against existing loops before creating new ones.' },
-				{ role: 'user', content: prompt }
+				{ role: 'system', content: systemMessage },
+				{ role: 'user', content: userMessage }
 			],
 			response_format: GROQ_SUGGESTIONS_RESPONSE_SCHEMA,
 			temperature
@@ -515,10 +515,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const today = new Date().toISOString().slice(0, 10);
 		const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()];
 
-		const prompt = `
-You are an expert assistant that parses unstructured brain dumps into precise, structured actions. You understand natural language deeply — people talk in fragments, abbreviations, and stream-of-consciousness. Your job is to extract EVERY actionable item and categorize it correctly.
-
-Today is ${dayName}, ${today}.
+		const systemPrompt = `You are an expert assistant that parses unstructured brain dumps into precise, structured actions. You understand natural language deeply — people talk in fragments, abbreviations, and stream-of-consciousness. Your job is to extract EVERY actionable item and categorize it correctly.
 
 Return ONLY a JSON object: { "suggestions": [ ... ] }.
 Each suggestion object has this shape (include only relevant fields):
@@ -529,7 +526,7 @@ Each suggestion object has this shape (include only relevant fields):
   "energy": "active" | "waiting" | "someday",
   "deadline": "ISO date string or null",
   "project": "project name or null",
-  "people": [{ "name": "string", "role": "involved" | "waiting_on" | "delegated_to" }],
+  "people": [{ "name": "string", "role": "involved" | "waiting_on" | "delegated_to", "rel": "inferred relationship" }],
   "tags": ["tag"],
   "loopId": "existing loop id when matching an existing loop",
   "reason": "done" | "dropped" | "delegated" | "irrelevant",
@@ -540,8 +537,6 @@ Each suggestion object has this shape (include only relevant fields):
   "color": "#hex for create_project",
   "confidence": "high" | "medium" | "low"
 }
-
-${formatContextBlock(context)}
 
 == ACTION SELECTION RULES ==
 IMPORTANT: Most brain dumps are about EXISTING loops — updates, progress, closures, priority shifts. Creating new loops is less common. Always try to match against existing loops FIRST.
@@ -579,9 +574,15 @@ IMPORTANT: Most brain dumps are about EXISTING loops — updates, progress, clos
    = add_note (deck loop) + update_loop (deck deadline→Friday) + close_loop (dentist) + open_loop (CI pipeline)
    - An update and a deadline change on the same loop should be SEPARATE actions (add_note + update_loop) so both are tracked.
 
-6. PROJECTS: Fuzzy-match against PROJECTS list. Don't create a new project unless explicitly named as one.
+6. PROJECTS: Fuzzy-match against PROJECTS list. If the user groups tasks under a clear theme/project name that doesn't exist yet, include it as the "project" field — it will be auto-created.
 
 7. RECENTLY CLOSED: Don't suggest closing something already closed. If the user mentions a closed loop with new info, use open_loop to reopen it or add_note if they're just reflecting.
+
+== AUTO-CREATION ==
+The system automatically creates people and projects when you reference them.
+- Include people directly in the "people" array of ANY action. If the person doesn't exist yet, they'll be created automatically. No need for a separate create_person action.
+- Include projects by name in the "project" field. If the project doesn't exist, it'll be created automatically. No need for a separate create_project action.
+- Use create_person / create_project ONLY for standalone requests like "add Sarah as a contact" or "create a project called Marketing" with no associated loop action.
 
 == PEOPLE EXTRACTION ==
 - Recognize names in ANY position: "told Sarah", "meeting with Jake", "Sarah said", "from Mike", "Mike's thing"
@@ -589,13 +590,13 @@ IMPORTANT: Most brain dumps are about EXISTING loops — updates, progress, clos
   - "waiting on X", "need X to", "blocked by X", "X hasn't" → role: "waiting_on"
   - "delegated to X", "handed X", "asked X to handle", "X is taking over" → role: "delegated_to"
   - Otherwise → role: "involved"
-- Fuzzy-match against PEOPLE list first (use the relationship context to disambiguate). If no match, include a separate create_person action with name and inferred relationship (colleague, client, friend, etc.)
+- Fuzzy-match against PEOPLE list first (use the relationship context to disambiguate). If no match, just use the name directly — the system auto-creates people. Infer relationship (colleague, client, friend, etc.) and include it in the "rel" field of the person object.
 - Attach people to the relevant loop action, not as standalone items.
 - When a loop already has people assigned (shown in OPEN LOOPS), carry them forward — don't lose existing associations.
 
 == DEADLINE EXTRACTION ==
-Parse natural-language dates relative to today (${dayName}, ${today}):
-- "today" / "tonight" / "eod" → ${today}
+Parse natural-language dates relative to today:
+- "today" / "tonight" / "eod" → today's date
 - "tomorrow" / "tmrw" → next day
 - "this week" / "by Friday" / "by end of week" → that weekday this week (or next week if already passed)
 - "next week" / "next Monday" → the corresponding day next week
@@ -623,12 +624,15 @@ Always output deadlines as ISO date strings (YYYY-MM-DD).
 == CONFIDENCE ==
 - high: explicit, unambiguous instruction ("Schedule meeting with Sarah for Friday")
 - medium: reasonable inference ("talked to Sarah about the deck" → add_note to deck-related loop)
-- low: vague or uncertain ("maybe something about that thing")
+- low: vague or uncertain ("maybe something about that thing")`;
 
-Text: ${text}
-`.trim();
+		const userPrompt = `Today is ${dayName}, ${today}.
 
-		const runModel = async (temperature: number) => runReasoningWithGroq(prompt, temperature, groqApiKey);
+${formatContextBlock(context)}
+
+Text: ${text}`;
+
+		const runModel = async (temperature: number) => runReasoningWithGroq(systemPrompt, userPrompt, temperature, groqApiKey);
 
 		let responseText = await runModel(0.2);
 		let suggestions = parseModelJson(responseText);

@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import { ensureD1Schema } from '$db/bootstrap';
+import { normalizeForDb, normalizeForClient, rowExists, normalizeForeignKeys } from '$db/d1';
 
 const changeSchema = z.object({
 	table: z.enum(['loops', 'events', 'loop_notes', 'people', 'projects', 'dumps', 'suggestions', 'loop_person']),
@@ -27,40 +28,6 @@ const tablePrimaryKey = {
 	loop_person: 'loop_id'
 } as const;
 
-const toSnake = (value: string) => value.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
-const toCamel = (value: string) => value.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-
-const normalizeForDb = (obj: Record<string, unknown>) =>
-	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toSnake(key), val]));
-
-const normalizeForClient = (obj: Record<string, unknown>) =>
-	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toCamel(key), val]));
-
-async function rowExists(env: App.Platform['env'], table: string, id: unknown) {
-	if (typeof id !== 'string' || !id) return false;
-	const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`).bind(id).first();
-	return Boolean(row);
-}
-
-async function normalizeForeignKeys(env: App.Platform['env'], table: keyof typeof tablePrimaryKey | 'loop_person', data: Record<string, unknown>) {
-	// Keep sync resilient when old/local queue entries reference rows
-	// that no longer exist after schema/content resets.
-	if (table === 'events') {
-		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
-		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
-	}
-	if (table === 'suggestions') {
-		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
-	}
-	if (table === 'loops') {
-		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id))) data.project_id = null;
-		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id))) data.parent_id = null;
-	}
-	if (table === 'loop_notes') {
-		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
-	}
-}
-
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
 	if (!env?.DB) return json({ error: 'D1 binding missing' }, { status: 500 });
@@ -85,7 +52,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			}
 		} else if (change.data) {
 			const dbData = normalizeForDb(change.data);
-			await normalizeForeignKeys(env as App.Platform['env'], change.table, dbData);
+			await normalizeForeignKeys(env as App.Platform['env'], change.table as string, dbData);
 			const keys = Object.keys(dbData);
 			const values = Object.values(dbData);
 			const placeholders = keys.map(() => '?').join(', ');

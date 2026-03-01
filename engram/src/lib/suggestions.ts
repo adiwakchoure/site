@@ -1,17 +1,27 @@
 import { addUpdate, closeLoop, createLoop, putLoopPerson, putPerson, putProject, setSuggestionStatus, updateLoop } from '$db/local';
-import { db } from '$db/schema';
+import { get } from 'svelte/store';
+import { peopleStore, projectsStore, loopsStore } from '$stores/app';
 import type { LoopPersonRole, SuggestedAction } from '$types/models';
 
-async function ensurePerson(name: string) {
+async function ensurePerson(name: string, rel?: string) {
 	const normalized = name.trim().toLowerCase();
-	const found = await db.people.filter((p) => p.name.toLowerCase() === normalized).first();
+	const people = get(peopleStore) ?? [];
+	const found = people.find((p) => p.name.toLowerCase() === normalized);
 	if (found) return found;
-	return putPerson({ name, rel: '' });
+	return putPerson({ name, rel: rel ?? '' });
+}
+
+async function ensureAndLinkPeople(loopId: string, people?: SuggestedAction['people']) {
+	for (const ref of people ?? []) {
+		const person = await ensurePerson(ref.name, ref.rel);
+		await putLoopPerson(loopId, person.id, (ref.role ?? 'involved') as LoopPersonRole);
+	}
 }
 
 async function ensureProject(name: string) {
 	const normalized = name.trim().toLowerCase();
-	const found = await db.projects.filter((p) => p.name.toLowerCase() === normalized).first();
+	const projects = get(projectsStore) ?? [];
+	const found = projects.find((p) => p.name.toLowerCase() === normalized);
 	if (found) return found;
 	return putProject({ name, color: '#a0714a', emoji: null });
 }
@@ -20,7 +30,7 @@ async function resolveLoopId(item: SuggestedAction): Promise<string | null> {
 	if (item.loopId) return item.loopId;
 	const query = (item.title ?? item.text ?? '').trim().toLowerCase();
 	if (!query) return null;
-	const loops = await db.loops.toArray();
+	const loops = get(loopsStore) ?? [];
 	const exact = loops.find((loop) => loop.title.toLowerCase() === query);
 	if (exact) return exact.id;
 	const includes = loops.find((loop) => loop.title.toLowerCase().includes(query) || query.includes(loop.title.toLowerCase()));
@@ -57,15 +67,13 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 			tags: item.tags ?? [],
 			dumpId
 		});
-		for (const personRef of item.people ?? []) {
-			const person = await ensurePerson(personRef.name);
-			await putLoopPerson(loop.id, person.id, (personRef.role ?? 'involved') as LoopPersonRole);
-		}
+		await ensureAndLinkPeople(loop.id, item.people);
 		await markAccepted();
 		return;
 	}
 
 	if (item.action === 'close_loop' && item.loopId) {
+		await ensureAndLinkPeople(item.loopId, item.people);
 		await closeLoop(item.loopId, item.reason ?? 'done', dumpId);
 		await markAccepted();
 		return;
@@ -74,6 +82,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 	if (item.action === 'close_loop' && !item.loopId) {
 		const resolved = await resolveLoopId(item);
 		if (!resolved) return;
+		await ensureAndLinkPeople(resolved, item.people);
 		await closeLoop(resolved, item.reason ?? 'done', dumpId);
 		await markAccepted();
 		return;
@@ -81,6 +90,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 
 	if (item.action === 'add_note' && item.loopId && item.text) {
 		await addUpdate(item.loopId, item.text, dumpId);
+		await ensureAndLinkPeople(item.loopId, item.people);
 		await markAccepted();
 		return;
 	}
@@ -89,29 +99,39 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		const resolved = await resolveLoopId(item);
 		if (!resolved) return;
 		await addUpdate(resolved, item.text, dumpId);
+		await ensureAndLinkPeople(resolved, item.people);
 		await markAccepted();
 		return;
 	}
 
 	if (item.action === 'update_loop' && item.loopId) {
 		const changes = item.changes ?? {};
+		const projectName = changes.project ?? item.project;
+		const project = typeof projectName === 'string' ? await ensureProject(projectName) : undefined;
 		await updateLoop(item.loopId, {
 			priority: (changes.priority as 'P0' | 'P1' | 'P2' | undefined) ?? item.priority,
 			energy: (changes.energy as 'active' | 'waiting' | 'someday' | undefined) ?? item.energy,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined
+			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
+			projectId: project?.id
 		});
+		await ensureAndLinkPeople(item.loopId, item.people);
 		await markAccepted();
+		return;
 	}
 
 	if (item.action === 'update_loop' && !item.loopId) {
 		const resolved = await resolveLoopId(item);
 		if (!resolved) return;
 		const changes = item.changes ?? {};
+		const projectName = changes.project ?? item.project;
+		const project = typeof projectName === 'string' ? await ensureProject(projectName) : undefined;
 		await updateLoop(resolved, {
 			priority: (changes.priority as 'P0' | 'P1' | 'P2' | undefined) ?? item.priority,
 			energy: (changes.energy as 'active' | 'waiting' | 'someday' | undefined) ?? item.energy,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined
+			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
+			projectId: project?.id
 		});
+		await ensureAndLinkPeople(resolved, item.people);
 		await markAccepted();
 	}
 }

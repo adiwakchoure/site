@@ -1,4 +1,3 @@
-import { liveQuery } from 'dexie';
 import { db } from '$db/schema';
 import type {
 	ClosedReason,
@@ -16,10 +15,19 @@ import type {
 	SyncOp
 } from '$types/models';
 import { uid } from '$lib/utils';
+import { syncNow } from '$db/sync';
+import { refreshFromServer } from '$stores/app';
 
 const nowIso = () => new Date().toISOString();
 
 const queue = async (op: Omit<SyncOp, 'seq'>) => db.syncQueue.add(op);
+
+function syncAndRefresh() {
+	if (typeof navigator === 'undefined' || !navigator.onLine) return;
+	syncNow()
+		.then(() => refreshFromServer())
+		.catch(() => {});
+}
 
 async function putEvent(event: LoopEvent) {
 	await db.events.put(event);
@@ -92,6 +100,7 @@ export async function createLoop(input: {
 		sequence: await nextSequence(loop.id),
 		createdAt: now
 	});
+	syncAndRefresh();
 	return loop;
 }
 
@@ -115,6 +124,7 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'bo
 		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
+	syncAndRefresh();
 	return next;
 }
 
@@ -141,6 +151,7 @@ export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: st
 		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
+	syncAndRefresh();
 	return next;
 }
 
@@ -167,6 +178,7 @@ export async function reopenLoop(loopId: string) {
 		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
+	syncAndRefresh();
 	return next;
 }
 
@@ -183,6 +195,7 @@ export async function addUpdate(loopId: string, text: string, dumpId: string | n
 		createdAt: now
 	});
 	await touchLoop(loopId, now);
+	syncAndRefresh();
 }
 
 export const addNote = addUpdate;
@@ -203,6 +216,7 @@ export async function addLoopNote(loopId: string, body: string) {
 	};
 	await putLoopNote(note);
 	await touchLoop(loopId, now);
+	syncAndRefresh();
 	return note;
 }
 
@@ -213,6 +227,7 @@ export async function updateLoopNote(noteId: string, body: string) {
 	const next: LoopNote = { ...current, body, updatedAt: now };
 	await putLoopNote(next);
 	await touchLoop(next.loopId, now);
+	syncAndRefresh();
 	return next;
 }
 
@@ -232,6 +247,7 @@ export async function deleteLoop(loopId: string) {
 		sequence: await nextSequence(loopId),
 		createdAt: now
 	});
+	syncAndRefresh();
 }
 
 export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) {
@@ -248,6 +264,7 @@ export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?:
 		sequence: await nextSequence(null),
 		createdAt: nowIso()
 	});
+	syncAndRefresh();
 	return person;
 }
 
@@ -272,6 +289,7 @@ export async function putProject(input: Omit<Project, 'id' | 'createdAt' | 'arch
 		sequence: await nextSequence(null),
 		createdAt: nowIso()
 	});
+	syncAndRefresh();
 	return project;
 }
 
@@ -284,6 +302,7 @@ export async function putLoopPerson(loopId: string, personId: string, role: Loop
 		data: { loopId, personId, role },
 		ts: nowIso()
 	});
+	syncAndRefresh();
 }
 
 export async function putDump(input: Omit<Dump, 'id' | 'createdAt' | 'processed'> & { id?: string; createdAt?: string; processed?: number }) {
@@ -297,6 +316,7 @@ export async function putDump(input: Omit<Dump, 'id' | 'createdAt' | 'processed'
 	};
 	await db.dumps.put(dump);
 	await queue({ table: 'dumps', op: 'put', id: dump.id, data: dump as unknown as Record<string, unknown>, ts: dump.createdAt });
+	syncAndRefresh();
 	return dump;
 }
 
@@ -313,6 +333,7 @@ export async function putSuggestion(input: Omit<SuggestionRecord, 'id' | 'create
 	};
 	await db.suggestions.put(suggestion);
 	await queue({ table: 'suggestions', op: 'put', id: suggestion.id, data: suggestion as unknown as Record<string, unknown>, ts: now });
+	syncAndRefresh();
 	return suggestion;
 }
 
@@ -335,13 +356,5 @@ export async function setSuggestionStatus(suggestionId: string, status: 'accepte
 		data: next as unknown as Record<string, unknown>,
 		ts: next.resolvedAt ?? nowIso()
 	});
+	syncAndRefresh();
 }
-
-export const liveLoops = () => liveQuery(() => db.loops.toArray());
-export const liveEvents = () => liveQuery(() => db.events.toArray());
-export const livePeople = () => liveQuery(() => db.people.toArray());
-export const liveProjects = () => liveQuery(() => db.projects.toArray());
-export const liveDumps = () => liveQuery(() => db.dumps.toArray());
-export const liveLoopPeople = () => liveQuery(() => db.loopPeople.toArray());
-export const liveSuggestions = () => liveQuery(() => db.suggestions.toArray());
-export const liveLoopNotes = () => liveQuery(() => db.loopNotes.toArray());

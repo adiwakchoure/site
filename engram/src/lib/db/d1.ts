@@ -1,0 +1,39 @@
+/** Shared D1 helpers used by /api/sync and /api/data */
+
+export const toSnake = (value: string) => value.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+export const toCamel = (value: string) => value.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+
+export const normalizeForDb = (obj: Record<string, unknown>) =>
+	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toSnake(key), val]));
+
+export const normalizeForClient = (obj: Record<string, unknown>) =>
+	Object.fromEntries(Object.entries(obj).map(([key, val]) => [toCamel(key), val]));
+
+export async function rowExists(env: App.Platform['env'], table: string, id: unknown) {
+	if (typeof id !== 'string' || !id) return false;
+	const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE id = ? LIMIT 1`).bind(id).first();
+	return Boolean(row);
+}
+
+export async function normalizeForeignKeys(
+	env: App.Platform['env'],
+	table: string,
+	data: Record<string, unknown>
+) {
+	if (table === 'events') {
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+	}
+	if (table === 'suggestions') {
+		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id))) data.dump_id = null;
+	}
+	if (table === 'loops') {
+		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id)))
+			data.project_id = null;
+		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id)))
+			data.parent_id = null;
+	}
+	if (table === 'loop_notes') {
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id))) data.loop_id = null;
+	}
+}

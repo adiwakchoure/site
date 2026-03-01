@@ -95,7 +95,7 @@ export interface SuggestedAction {
 	energy?: LoopEnergy;
 	deadline?: string | null;
 	project?: string | null;
-	people?: Array<{ name: string; role: LoopPersonRole }>;
+	people?: Array<{ name: string; role: LoopPersonRole; rel?: string }>;
 	tags?: string[];
 	reason?: ClosedReason;
 	text?: string;
