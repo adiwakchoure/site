@@ -384,6 +384,10 @@ select:focus-visible,
 		box-shadow: var(--shadow-md);
 	}
 
+	.app-header {
+		display: none;
+	}
+
 	.app-sidebar {
 		display: flex;
 		flex-direction: column;
@@ -394,6 +398,10 @@ select:focus-visible,
 		background: var(--surface-2);
 		box-shadow: var(--shadow-sm);
 		overflow: auto;
+	}
+
+	.app-sidebar .app-title {
+		text-align: center;
 	}
 
 	.tab-bar {

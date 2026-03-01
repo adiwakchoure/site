@@ -2,26 +2,22 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { AlertTriangle, BarChart3, Layers, LogOut, Settings2, Users } from 'lucide-svelte';
+	import { BarChart3, Layers, Settings2, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
-	import { loopsStore, pendingSyncStore, syncState, refreshFromServer } from '$stores/app';
+	import { syncState, refreshFromServer } from '$stores/app';
 	import { toastMessage } from '$stores/toast';
-	import { isOverdue } from '$lib/utils';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 
-	let { data, children } = $props();
+	let { children } = $props();
 	const tabs = [
 		{ href: '/loops', label: 'Loops', icon: Layers },
 		{ href: '/people', label: 'People', icon: Users },
 		{ href: '/mirror', label: 'Mirror', icon: BarChart3 },
 		{ href: '/manage', label: 'Manage', icon: Settings2 }
 	];
-
-	const openCount = $derived(($loopsStore ?? []).filter((loop) => loop.state === 'open').length);
-	const overdueCount = $derived(($loopsStore ?? []).filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 
 	onMount(() => {
 		const isLoginRoute = () => window.location.pathname === '/login';
@@ -129,15 +125,6 @@
 	<main class="app-shell">
 		<aside class="app-sidebar">
 			<h1 class="app-title">engram</h1>
-			<div class="app-open-meta">
-				<span>{openCount} open</span>
-				{#if overdueCount > 0}
-					<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
-						<AlertTriangle size={12} />
-						{overdueCount}
-					</span>
-				{/if}
-			</div>
 			<nav class="sidebar-nav" aria-label="Primary navigation">
 				{#each tabs as tab}
 					<a
@@ -150,34 +137,11 @@
 					</a>
 				{/each}
 			</nav>
-			{#if data.user?.email}
-				<p class="app-open-meta">{data.user.email}</p>
-			{/if}
-			<a class="sidebar-link" href="/api/auth/logout" aria-label="Sign out of Engram">
-				<LogOut size={16} />
-				<span>Sign out</span>
-			</a>
 		</aside>
 
 		<div class="app-main">
 			<header class="app-header">
 				<h1 class="app-title">engram</h1>
-				<div class="app-open-meta">
-					{#if data.user?.email}
-						<span>{data.user.email}</span>
-					{/if}
-					<span aria-label={`${openCount} open loops`}>{openCount} open</span>
-					{#if overdueCount > 0}
-						<span aria-label={`${overdueCount} overdue loops`} style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
-							<AlertTriangle size={12} />
-							{overdueCount}
-						</span>
-					{/if}
-					{#if $pendingSyncStore}
-						<span class="sr-only">{$syncState}</span>
-					{/if}
-					<a class="app-link-btn" href="/api/auth/logout" aria-label="Sign out of Engram">Sign out</a>
-				</div>
 			</header>
 
 			<section class="content">
