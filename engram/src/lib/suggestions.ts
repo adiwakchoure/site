@@ -1,7 +1,7 @@
 import { addUpdate, closeLoop, createLoop, putLoopPerson, putPerson, putProject, setSuggestionStatus, updateLoop } from '$db/local';
 import { get } from 'svelte/store';
 import { peopleStore, projectsStore, loopsStore } from '$stores/app';
-import type { LoopPersonRole, SuggestedAction } from '$types/models';
+import type { SuggestedAction } from '$types/models';
 
 async function ensurePerson(name: string, rel?: string) {
 	const normalized = name.trim().toLowerCase();
@@ -14,7 +14,7 @@ async function ensurePerson(name: string, rel?: string) {
 async function ensureAndLinkPeople(loopId: string, people?: SuggestedAction['people']) {
 	for (const ref of people ?? []) {
 		const person = await ensurePerson(ref.name, ref.rel);
-		await putLoopPerson(loopId, person.id, (ref.role ?? 'involved') as LoopPersonRole);
+		await putLoopPerson(loopId, person.id);
 	}
 }
 

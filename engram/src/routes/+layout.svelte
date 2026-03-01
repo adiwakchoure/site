@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { AlertTriangle, BarChart3, Layers, LogOut, Users } from 'lucide-svelte';
+	import { AlertTriangle, BarChart3, Layers, LogOut, Settings2, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
@@ -16,7 +16,8 @@
 	const tabs = [
 		{ href: '/loops', label: 'Loops', icon: Layers },
 		{ href: '/people', label: 'People', icon: Users },
-		{ href: '/mirror', label: 'Mirror', icon: BarChart3 }
+		{ href: '/mirror', label: 'Mirror', icon: BarChart3 },
+		{ href: '/manage', label: 'Manage', icon: Settings2 }
 	];
 
 	const openCount = $derived(($loopsStore ?? []).filter((loop) => loop.state === 'open').length);
@@ -139,8 +140,12 @@
 			</div>
 			<nav class="sidebar-nav" aria-label="Primary navigation">
 				{#each tabs as tab}
-					<a class="sidebar-link" class:active={$page.url.pathname === tab.href} href={tab.href}>
-						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+					<a
+						class="sidebar-link"
+						class:active={tab.href === '/manage' ? $page.url.pathname.startsWith('/manage') : $page.url.pathname === tab.href}
+						href={tab.href}
+					>
+						<tab.icon size={16} strokeWidth={tab.href === '/manage' ? ($page.url.pathname.startsWith('/manage') ? 2 : 1.5) : ($page.url.pathname === tab.href ? 2 : 1.5)} />
 						<span>{tab.label}</span>
 					</a>
 				{/each}
@@ -183,14 +188,20 @@
 				{/key}
 			</section>
 
-			<div class="dump-slot">
-				<DumpBar />
-			</div>
+			{#if !$page.url.pathname.startsWith('/manage')}
+				<div class="dump-slot">
+					<DumpBar />
+				</div>
+			{/if}
 
 			<nav class="tab-bar">
 				{#each tabs as tab}
-					<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
-						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+					<a
+						class="tab-item"
+						class:active={tab.href === '/manage' ? $page.url.pathname.startsWith('/manage') : $page.url.pathname === tab.href}
+						href={tab.href}
+					>
+						<tab.icon size={16} strokeWidth={tab.href === '/manage' ? ($page.url.pathname.startsWith('/manage') ? 2 : 1.5) : ($page.url.pathname === tab.href ? 2 : 1.5)} />
 						<span>{tab.label}</span>
 						<span class="tab-underline"></span>
 					</a>

@@ -47,7 +47,7 @@ const SCHEMA_SQL = [
     owner_id TEXT NOT NULL,
     loop_id TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
     person_id TEXT NOT NULL REFERENCES people(id),
-    role TEXT DEFAULT 'involved' CHECK(role IN ('involved', 'waiting_on', 'delegated_to')),
+    role TEXT DEFAULT 'involved',
     PRIMARY KEY (owner_id, loop_id, person_id)
   )`,
 	`CREATE TABLE IF NOT EXISTS projects (

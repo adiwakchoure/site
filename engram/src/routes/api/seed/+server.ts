@@ -23,13 +23,13 @@ const SEED = {
 		{ id: 'loop_009', title: 'Book conference travel', body: '', state: 'closed', closedReason: 'dropped', energy: 'active', priority: 'P2', deadline: '2026-02-20', projectId: null, parentId: null, tags: '', createdAt: '2026-02-13T10:00:00Z', closedAt: '2026-02-18T08:00:00Z', archivedAt: null, updatedAt: '2026-02-18T08:00:00Z' }
 	],
 	loopPeople: [
-		{ loopId: 'loop_001', personId: 'per_001', role: 'involved' },
-		{ loopId: 'loop_002', personId: 'per_001', role: 'waiting_on' },
-		{ loopId: 'loop_003', personId: 'per_002', role: 'involved' },
-		{ loopId: 'loop_004', personId: 'per_002', role: 'delegated_to' },
-		{ loopId: 'loop_005', personId: 'per_002', role: 'involved' },
-		{ loopId: 'loop_006', personId: 'per_003', role: 'waiting_on' },
-		{ loopId: 'loop_007', personId: 'per_003', role: 'involved' }
+		{ loopId: 'loop_001', personId: 'per_001' },
+		{ loopId: 'loop_002', personId: 'per_001' },
+		{ loopId: 'loop_003', personId: 'per_002' },
+		{ loopId: 'loop_004', personId: 'per_002' },
+		{ loopId: 'loop_005', personId: 'per_002' },
+		{ loopId: 'loop_006', personId: 'per_003' },
+		{ loopId: 'loop_007', personId: 'per_003' }
 	],
 	events: [
 		{ id: 'evt_001', loopId: 'loop_001', kind: 'created', body: null, meta: null, sequence: 1, dumpId: null, createdAt: '2026-02-20T10:00:00Z' },

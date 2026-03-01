@@ -6,7 +6,6 @@ import type {
 	LoopEnergy,
 	LoopEvent,
 	LoopNote,
-	LoopPersonRole,
 	LoopPriority,
 	Person,
 	Project,
@@ -104,7 +103,7 @@ export async function createLoop(input: {
 	return loop;
 }
 
-export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
+export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'title' | 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();
@@ -268,6 +267,97 @@ export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?:
 	return person;
 }
 
+export async function updatePerson(personId: string, changes: Partial<Pick<Person, 'name' | 'rel'>>) {
+	const current = await db.people.get(personId);
+	if (!current) return null;
+	const next: Person = {
+		...current,
+		...changes
+	};
+	await db.people.put(next);
+	await queue({ table: 'people', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: nowIso() });
+	syncAndRefresh();
+	return next;
+}
+
+const personArchivePrefix = '[archived] ';
+
+export function isArchivedPerson(person: Person) {
+	return person.rel.startsWith(personArchivePrefix);
+}
+
+export async function archivePerson(personId: string) {
+	const current = await db.people.get(personId);
+	if (!current) return null;
+	if (isArchivedPerson(current)) return current;
+	return updatePerson(personId, { rel: `${personArchivePrefix}${current.rel}` });
+}
+
+export async function unarchivePerson(personId: string) {
+	const current = await db.people.get(personId);
+	if (!current) return null;
+	if (!isArchivedPerson(current)) return current;
+	return updatePerson(personId, { rel: current.rel.replace(personArchivePrefix, '') });
+}
+
+export async function deletePerson(personId: string) {
+	const now = nowIso();
+	const links = await db.loopPeople.where('personId').equals(personId).toArray();
+	await db.transaction('rw', [db.people, db.loopPeople], async () => {
+		await db.people.delete(personId);
+		for (const link of links) {
+			await db.loopPeople.delete([link.loopId, link.personId]);
+		}
+	});
+	await queue({ table: 'people', op: 'delete', id: personId, ts: now });
+	for (const link of links) {
+		await queue({ table: 'loop_person', op: 'delete', id: `${link.loopId}:${link.personId}`, ts: now });
+	}
+	syncAndRefresh();
+}
+
+export async function reassignLoopsAndDeletePerson(personId: string, reassignToPersonId: string | null) {
+	if (reassignToPersonId === personId) return;
+	const now = nowIso();
+	const links = await db.loopPeople.where('personId').equals(personId).toArray();
+	if (links.length > 0 && !reassignToPersonId) {
+		throw new Error('reassign_required');
+	}
+	if (reassignToPersonId) {
+		const target = await db.people.get(reassignToPersonId);
+		if (!target) throw new Error('reassign_target_missing');
+	}
+	const createdLinks: Array<{ loopId: string; personId: string }> = [];
+	await db.transaction('rw', [db.people, db.loopPeople], async () => {
+		for (const link of links) {
+			if (reassignToPersonId) {
+				const existing = await db.loopPeople.get([link.loopId, reassignToPersonId]);
+				if (!existing) {
+					const nextLink = { loopId: link.loopId, personId: reassignToPersonId };
+					await db.loopPeople.put(nextLink);
+					createdLinks.push(nextLink);
+				}
+			}
+			await db.loopPeople.delete([link.loopId, link.personId]);
+		}
+		await db.people.delete(personId);
+	});
+	await queue({ table: 'people', op: 'delete', id: personId, ts: now });
+	for (const link of links) {
+		await queue({ table: 'loop_person', op: 'delete', id: `${link.loopId}:${link.personId}`, ts: now });
+	}
+	for (const link of createdLinks) {
+		await queue({
+			table: 'loop_person',
+			op: 'put',
+			id: `${link.loopId}:${link.personId}`,
+			data: link as unknown as Record<string, unknown>,
+			ts: now
+		});
+	}
+	syncAndRefresh();
+}
+
 export async function putProject(input: Omit<Project, 'id' | 'createdAt' | 'archived'> & { id?: string; createdAt?: string; archived?: number }) {
 	const project: Project = {
 		id: input.id ?? uid('project'),
@@ -293,13 +383,63 @@ export async function putProject(input: Omit<Project, 'id' | 'createdAt' | 'arch
 	return project;
 }
 
-export async function putLoopPerson(loopId: string, personId: string, role: LoopPersonRole = 'involved') {
-	await db.loopPeople.put({ loopId, personId, role });
+export async function updateProject(projectId: string, changes: Partial<Pick<Project, 'name' | 'color' | 'emoji' | 'archived'>>) {
+	const current = await db.projects.get(projectId);
+	if (!current) return null;
+	const next: Project = {
+		...current,
+		...changes
+	};
+	await db.projects.put(next);
+	await queue({ table: 'projects', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: nowIso() });
+	syncAndRefresh();
+	return next;
+}
+
+export async function archiveProject(projectId: string) {
+	return updateProject(projectId, { archived: 1 });
+}
+
+export async function unarchiveProject(projectId: string) {
+	return updateProject(projectId, { archived: 0 });
+}
+
+export async function deleteProject(projectId: string) {
+	const now = nowIso();
+	const loopsUsingProject = await db.loops.where('projectId').equals(projectId).toArray();
+	await db.transaction('rw', [db.projects, db.loops], async () => {
+		await db.projects.delete(projectId);
+		for (const loop of loopsUsingProject) {
+			const next: Loop = { ...loop, projectId: null, updatedAt: now };
+			await db.loops.put(next);
+		}
+	});
+	await queue({ table: 'projects', op: 'delete', id: projectId, ts: now });
+	for (const loop of loopsUsingProject) {
+		const next = { ...loop, projectId: null, updatedAt: now };
+		await queue({ table: 'loops', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: now });
+	}
+	syncAndRefresh();
+}
+
+export async function putLoopPerson(loopId: string, personId: string) {
+	await db.loopPeople.put({ loopId, personId });
 	await queue({
 		table: 'loop_person',
 		op: 'put',
 		id: `${loopId}:${personId}`,
-		data: { loopId, personId, role },
+		data: { loopId, personId },
+		ts: nowIso()
+	});
+	syncAndRefresh();
+}
+
+export async function removeLoopPerson(loopId: string, personId: string) {
+	await db.loopPeople.delete([loopId, personId]);
+	await queue({
+		table: 'loop_person',
+		op: 'delete',
+		id: `${loopId}:${personId}`,
 		ts: nowIso()
 	});
 	syncAndRefresh();

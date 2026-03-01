@@ -27,6 +27,24 @@ export class EngramDB extends Dexie {
 			syncQueue: '++seq, table, op, id, ts',
 			meta: 'key'
 		});
+		this.version(5)
+			.stores({
+				loops: 'id, state, energy, priority, deadline, projectId, parentId, updatedAt, createdAt, closedAt, archivedAt',
+				events: 'id, loopId, kind, dumpId, sequence, createdAt',
+				loopNotes: 'id, loopId, createdAt, updatedAt',
+				people: 'id, name, createdAt',
+				projects: 'id, name, archived, createdAt',
+				dumps: 'id, processed, createdAt',
+				suggestions: 'id, dumpId, status, action, createdAt, resolvedAt',
+				loopPeople: '[loopId+personId], loopId, personId',
+				syncQueue: '++seq, table, op, id, ts',
+				meta: 'key'
+			})
+			.upgrade(async (tx) => {
+				await tx.table('loopPeople').toCollection().modify((row: Record<string, unknown>) => {
+					delete row.role;
+				});
+			});
 	}
 }
 

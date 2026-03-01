@@ -2,7 +2,6 @@ export type LoopState = 'open' | 'closed';
 export type LoopEnergy = 'active' | 'waiting' | 'someday';
 export type LoopPriority = 'P0' | 'P1' | 'P2';
 export type ClosedReason = 'done' | 'dropped' | 'delegated' | 'irrelevant';
-export type LoopPersonRole = 'involved' | 'waiting_on' | 'delegated_to';
 export type EventKind = 'created' | 'closed' | 'reopened' | 'updated' | 'noted' | 'deleted';
 export type SuggestionStatus = 'pending' | 'accepted' | 'dismissed';
 
@@ -53,7 +52,6 @@ export interface Person {
 export interface LoopPerson {
 	loopId: string;
 	personId: string;
-	role: LoopPersonRole;
 }
 
 export interface Project {
@@ -95,7 +93,7 @@ export interface SuggestedAction {
 	energy?: LoopEnergy;
 	deadline?: string | null;
 	project?: string | null;
-	people?: Array<{ name: string; role: LoopPersonRole; rel?: string }>;
+	people?: Array<{ name: string; rel?: string }>;
 	tags?: string[];
 	reason?: ClosedReason;
 	text?: string;

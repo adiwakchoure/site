@@ -358,7 +358,7 @@
 			projectId: data.project?.id ?? null
 		});
 		for (const person of data.people) {
-			await putLoopPerson(loop.id, person.id, 'involved');
+			await putLoopPerson(loop.id, person.id);
 		}
 		haptic(30);
 		showToast('Loop created');

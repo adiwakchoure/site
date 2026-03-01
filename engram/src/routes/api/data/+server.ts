@@ -19,7 +19,7 @@ export const GET: RequestHandler = async ({ locals, platform }) => {
 		env.DB.prepare('SELECT * FROM projects WHERE owner_id = ?').bind(userId).all(),
 		env.DB.prepare('SELECT * FROM dumps WHERE owner_id = ?').bind(userId).all(),
 		env.DB.prepare('SELECT * FROM suggestions WHERE owner_id = ?').bind(userId).all(),
-		env.DB.prepare('SELECT * FROM loop_person WHERE owner_id = ?').bind(userId).all()
+		env.DB.prepare('SELECT owner_id, loop_id, person_id FROM loop_person WHERE owner_id = ?').bind(userId).all()
 	]);
 
 	const norm = (rows: Record<string, unknown>[]) => rows.map((r) => normalizeForClient(r));

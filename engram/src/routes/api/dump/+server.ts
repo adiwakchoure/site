@@ -17,7 +17,7 @@ const suggestionSchema = z.object({
 	energy: z.enum(['active', 'waiting', 'someday']).optional(),
 	deadline: z.string().nullable().optional(),
 	project: z.string().nullable().optional(),
-	people: z.array(z.object({ name: z.string(), role: z.enum(['involved', 'waiting_on', 'delegated_to']).optional(), rel: z.string().optional() })).optional(),
+	people: z.array(z.object({ name: z.string(), rel: z.string().optional() })).optional(),
 	tags: z.array(z.string()).optional(),
 	reason: z.enum(['done', 'dropped', 'delegated', 'irrelevant']).optional(),
 	text: z.string().optional(),
@@ -79,24 +79,16 @@ function extractHeuristicDeadline(text: string): string | null {
 	return null;
 }
 
-function extractHeuristicPeople(text: string): Array<{ name: string; role: 'involved' | 'waiting_on' | 'delegated_to' }> {
-	const people: Array<{ name: string; role: 'involved' | 'waiting_on' | 'delegated_to' }> = [];
+function extractHeuristicPeople(text: string): Array<{ name: string }> {
+	const people: Array<{ name: string }> = [];
 	const capitalized = text.match(/\b[A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?\b/g) ?? [];
 	const stopWords = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'ASAP', 'The', 'This', 'That', 'What', 'When', 'Where', 'How', 'Also', 'Need', 'Done', 'Just', 'Still', 'Review']);
-	const lower = text.toLowerCase();
 	const seen = new Set<string>();
 
 	for (const name of capitalized) {
 		if (stopWords.has(name) || seen.has(name.toLowerCase())) continue;
 		seen.add(name.toLowerCase());
-		let role: 'involved' | 'waiting_on' | 'delegated_to' = 'involved';
-		const namePattern = name.toLowerCase();
-		if (new RegExp(`waiting\\s+on\\s+${namePattern}|blocked\\s+by\\s+${namePattern}|need\\s+${namePattern}\\s+to`, 'i').test(lower)) {
-			role = 'waiting_on';
-		} else if (new RegExp(`delegat\\w*\\s+to\\s+${namePattern}|hand\\w*\\s+(it\\s+)?to\\s+${namePattern}|ask\\w*\\s+${namePattern}\\s+to\\s+handle`, 'i').test(lower)) {
-			role = 'delegated_to';
-		}
-		people.push({ name, role });
+		people.push({ name });
 	}
 	return people;
 }
@@ -183,7 +175,7 @@ function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallb
 	const cleaned: SuggestedAction[] = [];
 	for (const item of base) {
 		const confidence: SuggestedAction['confidence'] = item.confidence ?? 'medium';
-		const people = item.people?.map((person) => ({ name: person.name, role: person.role ?? 'involved', rel: person.rel }));
+		const people = item.people?.map((person) => ({ name: person.name, rel: person.rel }));
 		if (item.action === 'open_loop') {
 			const title = item.title?.trim();
 			if (!title) continue;
@@ -297,7 +289,7 @@ async function runReasoningWithGroq(systemMessage: string, userMessage: string, 
 type LoopRow = { id: string; title: string; body: string; energy: string; priority: string; deadline: string | null; project_id: string | null; closed_reason: string | null; closed_at: string | null; created_at: string; updated_at: string };
 type PersonRow = { id: string; name: string; rel: string };
 type ProjectRow = { id: string; name: string; color: string; emoji: string | null; archived: number };
-type LoopPersonRow = { loop_id: string; person_id: string; person_name: string; role: string };
+type LoopPersonRow = { loop_id: string; person_id: string; person_name: string };
 type RecentNoteRow = { loop_id: string; body: string; created_at: string };
 type RecentEventRow = { loop_id: string; kind: string; body: string | null; created_at: string };
 
@@ -334,7 +326,7 @@ async function loadActiveContext(env: App.Platform['env'], ownerId: string): Pro
 			`SELECT id, name, color, emoji, archived FROM projects WHERE owner_id = ? ORDER BY archived ASC, name ASC`
 		).bind(ownerId).all<ProjectRow>(),
 		env.DB.prepare(
-			`SELECT lp.loop_id, lp.person_id, p.name as person_name, lp.role
+			`SELECT lp.loop_id, lp.person_id, p.name as person_name
        FROM loop_person lp JOIN people p ON p.id = lp.person_id
        WHERE lp.owner_id = ? AND p.owner_id = ?`
 		).bind(ownerId, ownerId).all<LoopPersonRow>(),
@@ -377,7 +369,7 @@ function formatContextBlock(ctx: FullContext): string {
 	const loopPeopleMap = new Map<string, string[]>();
 	for (const lp of ctx.loopPeople) {
 		const list = loopPeopleMap.get(lp.loop_id) ?? [];
-		list.push(`${lp.person_name} (${lp.role.replace('_', ' ')})`);
+		list.push(lp.person_name);
 		loopPeopleMap.set(lp.loop_id, list);
 	}
 
@@ -531,7 +523,7 @@ Each suggestion object has this shape (include only relevant fields):
   "energy": "active" | "waiting" | "someday",
   "deadline": "ISO date string or null",
   "project": "project name or null",
-  "people": [{ "name": "string", "role": "involved" | "waiting_on" | "delegated_to", "rel": "inferred relationship" }],
+  "people": [{ "name": "string", "rel": "optional relationship hint" }],
   "tags": ["tag"],
   "loopId": "existing loop id when matching an existing loop",
   "reason": "done" | "dropped" | "delegated" | "irrelevant",
@@ -591,11 +583,8 @@ The system automatically creates people and projects when you reference them.
 
 == PEOPLE EXTRACTION ==
 - Recognize names in ANY position: "told Sarah", "meeting with Jake", "Sarah said", "from Mike", "Mike's thing"
-- Determine role from context:
-  - "waiting on X", "need X to", "blocked by X", "X hasn't" → role: "waiting_on"
-  - "delegated to X", "handed X", "asked X to handle", "X is taking over" → role: "delegated_to"
-  - Otherwise → role: "involved"
-- Fuzzy-match against PEOPLE list first (use the relationship context to disambiguate). If no match, just use the name directly — the system auto-creates people. Infer relationship (colleague, client, friend, etc.) and include it in the "rel" field of the person object.
+- Fuzzy-match against PEOPLE list first. If no match, just use the name directly — the system auto-creates people.
+- Include "rel" only when the user explicitly gives a relationship hint (client, cofounder, etc.).
 - Attach people to the relevant loop action, not as standalone items.
 - When a loop already has people assigned (shown in OPEN LOOPS), carry them forward — don't lose existing associations.
 

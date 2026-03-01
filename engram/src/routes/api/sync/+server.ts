@@ -68,7 +68,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 					.filter((k) => !['owner_id', 'loop_id', 'person_id'].includes(k))
 					.map((k) => `${k}=excluded.${k}`)
 					.join(', ');
-				const sql = `INSERT INTO loop_person (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(owner_id, loop_id, person_id) DO UPDATE SET ${onConflict || 'role=excluded.role'}`;
+				const sql = `INSERT INTO loop_person (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(owner_id, loop_id, person_id) DO UPDATE SET ${onConflict || 'person_id=excluded.person_id'}`;
 				await env.DB.prepare(sql).bind(...values).run();
 			} else if (change.table === 'loop_notes') {
 				const hasLoop = await rowExists(env as App.Platform['env'], 'loops', dbData.loop_id, userId);
@@ -147,7 +147,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 		});
 	}
 	const loopPeople = await env.DB.prepare(
-		'SELECT lp.* FROM loop_person lp JOIN loops l ON l.id = lp.loop_id WHERE lp.owner_id = ? AND l.owner_id = ? AND l.updated_at > ? LIMIT 200'
+		'SELECT lp.owner_id, lp.loop_id, lp.person_id FROM loop_person lp JOIN loops l ON l.id = lp.loop_id WHERE lp.owner_id = ? AND l.owner_id = ? AND l.updated_at > ? LIMIT 200'
 	)
 		.bind(userId, userId, lastSync)
 		.all();
