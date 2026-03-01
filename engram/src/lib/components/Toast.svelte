@@ -17,7 +17,7 @@
 	.toast {
 		position: fixed;
 		left: 50%;
-		bottom: 80px;
+		bottom: calc(92px + env(safe-area-inset-bottom));
 		transform: translateX(-50%);
 		display: inline-flex;
 		align-items: center;
@@ -32,5 +32,15 @@
 		font-size: 13px;
 		animation: toast-in 0.35s var(--ease-spring);
 		z-index: 200;
+		max-width: min(92vw, 420px);
+	}
+
+	@media (min-width: 1024px) {
+		.toast {
+			left: auto;
+			right: 24px;
+			bottom: 24px;
+			transform: none;
+		}
 	}
 </style>

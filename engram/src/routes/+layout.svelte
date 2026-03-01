@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { AlertTriangle, BarChart3, Layers, Users } from 'lucide-svelte';
+	import { AlertTriangle, BarChart3, Layers, LogOut, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
@@ -118,7 +118,7 @@
 		content="AI-native loop tracking that clears your mind."
 	/>
 	<link rel="icon" href={favicon} />
-	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 	<meta name="theme-color" content="#faf9f7" />
 </svelte:head>
 
@@ -126,12 +126,9 @@
 	{@render children()}
 {:else}
 	<main class="app-shell">
-		<header class="app-header">
+		<aside class="app-sidebar">
 			<h1 class="app-title">engram</h1>
 			<div class="app-open-meta">
-				{#if data.user?.email}
-					<span>{data.user.email}</span>
-				{/if}
 				<span>{openCount} open</span>
 				{#if overdueCount > 0}
 					<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
@@ -139,34 +136,67 @@
 						{overdueCount}
 					</span>
 				{/if}
-				{#if $pendingSyncStore}
-					<span class="sr-only">{$syncState}</span>
-				{/if}
-				<a href="/api/auth/logout">Sign out</a>
 			</div>
-		</header>
-
-		<section class="content">
-			{#key $page.url.pathname}
-				<div class="route-transition" in:fade={{ duration: 160, delay: 80 }} out:fade={{ duration: 100 }}>
-					{@render children()}
-				</div>
-			{/key}
-		</section>
-
-		<div class="dump-slot">
-			<DumpBar />
-		</div>
-
-		<nav class="tab-bar">
-			{#each tabs as tab}
-				<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
-					<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
-					<span>{tab.label}</span>
-					<span class="tab-underline"></span>
-				</a>
+			<nav class="sidebar-nav" aria-label="Primary navigation">
+				{#each tabs as tab}
+					<a class="sidebar-link" class:active={$page.url.pathname === tab.href} href={tab.href}>
+						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+						<span>{tab.label}</span>
+					</a>
 				{/each}
-		</nav>
+			</nav>
+			{#if data.user?.email}
+				<p class="app-open-meta">{data.user.email}</p>
+			{/if}
+			<a class="sidebar-link" href="/api/auth/logout">
+				<LogOut size={16} />
+				<span>Sign out</span>
+			</a>
+		</aside>
+
+		<div class="app-main">
+			<header class="app-header">
+				<h1 class="app-title">engram</h1>
+				<div class="app-open-meta">
+					{#if data.user?.email}
+						<span>{data.user.email}</span>
+					{/if}
+					<span>{openCount} open</span>
+					{#if overdueCount > 0}
+						<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
+							<AlertTriangle size={12} />
+							{overdueCount}
+						</span>
+					{/if}
+					{#if $pendingSyncStore}
+						<span class="sr-only">{$syncState}</span>
+					{/if}
+					<a href="/api/auth/logout">Sign out</a>
+				</div>
+			</header>
+
+			<section class="content">
+				{#key $page.url.pathname}
+					<div class="route-transition page-container" in:fade={{ duration: 160, delay: 80 }} out:fade={{ duration: 100 }}>
+						{@render children()}
+					</div>
+				{/key}
+			</section>
+
+			<div class="dump-slot">
+				<DumpBar />
+			</div>
+
+			<nav class="tab-bar">
+				{#each tabs as tab}
+					<a class="tab-item" class:active={$page.url.pathname === tab.href} href={tab.href}>
+						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
+						<span>{tab.label}</span>
+						<span class="tab-underline"></span>
+					</a>
+				{/each}
+			</nav>
+		</div>
 	</main>
 
 	{#if $toastMessage}

@@ -399,16 +399,21 @@
 				role="button"
 				tabindex="0"
 				onclick={() => (mode = { kind: 'text' })}
-				onkeydown={(e) => { if (e.key === 'Enter') mode = { kind: 'text' }; }}
+				onkeydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						mode = { kind: 'text' };
+					}
+				}}
 			>
 				<Orb mode="resting" />
 				<PlaceholderText />
 			</div>
 			<div class="resting-actions">
-				<IconBtn title="Quick create" size={34} onClick={() => (mode = { kind: 'quickcreate' })}>
+				<IconBtn title="Quick create" size={40} onClick={() => (mode = { kind: 'quickcreate' })}>
 					<Plus size={16} />
 				</IconBtn>
-				<IconBtn title="Record voice" size={34} onClick={startRecording}>
+				<IconBtn title="Record voice" size={40} onClick={startRecording}>
 					<Mic size={16} />
 				</IconBtn>
 			</div>
@@ -433,10 +438,10 @@
 			<div class="text-toolbar">
 				<div class="text-toolbar-left">
 					<Orb mode="text" />
-					<IconBtn title="Paste" size={30} onClick={pasteClipboard}>
+					<IconBtn title="Paste" size={40} onClick={pasteClipboard}>
 						<Clipboard size={14} />
 					</IconBtn>
-					<IconBtn title="Clear" size={30} onClick={() => { text = ''; }}>
+					<IconBtn title="Clear" size={40} onClick={() => { text = ''; }}>
 						<X size={14} />
 					</IconBtn>
 				</div>
@@ -454,7 +459,18 @@
 
 	{:else if mode.kind === 'voice'}
 		<!-- Voice: waveform + duration + done -->
-		<div class="voice-mode" role="button" tabindex="0" onclick={stopRecording} onkeydown={(e) => { if (e.key === 'Enter') stopRecording(); }}>
+		<div
+			class="voice-mode"
+			role="button"
+			tabindex="0"
+			onclick={stopRecording}
+			onkeydown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					stopRecording();
+				}
+			}}
+		>
 			<Waveform {analyser} active={true} />
 			<div class="voice-footer">
 				<Orb mode="voice" />
@@ -528,7 +544,7 @@
 		padding: 0 14px;
 		overflow: hidden;
 		transition:
-			height 0.3s var(--ease-spring),
+			min-height 0.3s var(--ease-spring),
 			border-color 0.2s var(--ease);
 	}
 
@@ -538,24 +554,24 @@
 
 	/* Height per mode */
 	.pill.resting {
-		height: 52px;
+		min-height: 56px;
 	}
 
 	.pill.text {
-		height: 160px;
+		min-height: 176px;
 	}
 
 	.pill.voice {
-		height: 120px;
+		min-height: 132px;
 	}
 
 	.pill.processing {
-		height: 100px;
+		min-height: 112px;
 	}
 
 	.pill.suggestions {
 		height: auto;
-		max-height: 320px;
+		max-height: min(46vh, 380px);
 	}
 
 	.pill.quickcreate {
@@ -565,7 +581,7 @@
 
 	/* --- Resting --- */
 	.resting-row {
-		height: 52px;
+		min-height: 56px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -627,8 +643,8 @@
 	}
 
 	.send-btn {
-		width: 34px;
-		height: 34px;
+		width: 40px;
+		height: 40px;
 		border-radius: 50%;
 		border: none;
 		background: var(--surface);
@@ -676,7 +692,8 @@
 	}
 
 	.done-pill {
-		padding: 5px 16px;
+		min-height: 40px;
+		padding: 8px 16px;
 		border-radius: 14px;
 		border: none;
 		background: var(--accent);
@@ -710,6 +727,7 @@
 		margin: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		line-clamp: 2;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
@@ -781,7 +799,8 @@
 	}
 
 	.accept-all-pill {
-		padding: 5px 14px;
+		min-height: 40px;
+		padding: 8px 14px;
 		border-radius: 14px;
 		border: none;
 		background: var(--accent);
@@ -794,5 +813,22 @@
 
 	.accept-all-pill:active {
 		transform: scale(0.95);
+	}
+
+	@media (min-width: 768px) {
+		.pill {
+			margin: 0 12px 10px;
+			padding: 0 16px;
+		}
+
+		.pill.suggestions {
+			max-height: min(42vh, 420px);
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.pill {
+			margin: 0 14px 12px;
+		}
 	}
 </style>

@@ -71,21 +71,21 @@
 		onSubmit({ title: title.trim(), priority, energy, people: selectedPeople, project: selectedProject, deadline });
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			handleSubmit();
-		}
-		if (e.key === 'Escape') onCancel();
-	}
 </script>
 
-<div class="qc" onkeydown={handleKeydown}>
+<div class="qc" role="group" aria-label="Quick create loop">
 	<input
 		class="title-input"
 		bind:value={title}
 		placeholder="Loop title..."
 		autofocus
+		onkeydown={(e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				handleSubmit();
+			}
+			if (e.key === 'Escape') onCancel();
+		}}
 	/>
 
 	<div class="row g1" style="animation-delay:40ms">
@@ -219,7 +219,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		padding: 4px 10px;
+		min-height: 40px;
+		padding: 8px 10px;
 		border: none;
 		background: transparent;
 		color: var(--text4);
@@ -236,10 +237,12 @@
 
 	.search-inline {
 		position: relative;
+		max-width: 100%;
 	}
 
 	.search-input {
-		width: 120px;
+		width: clamp(140px, 28vw, 220px);
+		max-width: 100%;
 		border: none;
 		border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 		background: transparent;
@@ -247,14 +250,18 @@
 		font-weight: 300;
 		color: var(--text);
 		outline: none;
-		padding: 4px 2px;
+		padding: 8px 2px;
 	}
 
 	.dropdown {
 		position: absolute;
-		top: 100%;
+		top: calc(100% + 4px);
 		left: 0;
-		min-width: 140px;
+		right: auto;
+		width: max(100%, 180px);
+		max-width: min(320px, calc(100vw - 48px));
+		max-height: 220px;
+		overflow: auto;
 		background: #fff;
 		border: 1px solid rgba(0, 0, 0, 0.08);
 		border-radius: 10px;
@@ -269,7 +276,8 @@
 		text-align: left;
 		border: none;
 		background: transparent;
-		padding: 6px 10px;
+		min-height: 40px;
+		padding: 8px 10px;
 		font-size: 12px;
 		font-weight: 300;
 		color: var(--text2);
@@ -282,6 +290,7 @@
 	}
 
 	.date-input {
+		min-height: 40px;
 		border: none;
 		border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 		background: transparent;
@@ -289,7 +298,7 @@
 		font-weight: 300;
 		color: var(--text);
 		outline: none;
-		padding: 4px 2px;
+		padding: 8px 2px;
 	}
 
 	.footer {
@@ -300,8 +309,8 @@
 	}
 
 	.cancel-btn {
-		width: 34px;
-		height: 34px;
+		width: 40px;
+		height: 40px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -315,5 +324,11 @@
 
 	.cancel-btn:active {
 		color: var(--text2);
+	}
+
+	@media (min-width: 1024px) {
+		.dropdown {
+			max-width: 360px;
+		}
 	}
 </style>

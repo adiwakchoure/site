@@ -245,7 +245,13 @@
 		aria-label="Close loop details"
 		style={`--overlay-alpha:${overlayAlpha};`}
 		onpointerdown={onClose}
-		onkeydown={(event) => event.key === 'Escape' && onClose()}
+		onkeydown={(event) => {
+			if (event.key === 'Escape') onClose();
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				onClose();
+			}
+		}}
 		transition:fade={{ duration: 180 }}
 	>
 		<div
@@ -266,7 +272,13 @@
 				tabindex="0"
 				aria-label="Drag to close"
 				onpointerdown={startDrag}
-				onkeydown={(event) => event.key === 'Escape' && onClose()}
+				onkeydown={(event) => {
+					if (event.key === 'Escape') onClose();
+					if (event.key === 'Enter' || event.key === ' ') {
+						event.preventDefault();
+						onClose();
+					}
+				}}
 			>
 				<div class="drag"></div>
 			</div>
@@ -285,7 +297,7 @@
 					{:else}
 						<button class="header-action reopen-action" type="button" onclick={reopenCurrentLoop}>Reopen</button>
 					{/if}
-					<IconBtn title="Close" size={30} onClick={onClose}><X size={14} /></IconBtn>
+					<IconBtn title="Close" size={40} onClick={onClose}><X size={14} /></IconBtn>
 				</div>
 				<h2 class="head-title">{loop.title}</h2>
 				<textarea
@@ -376,10 +388,11 @@
 		z-index: 120;
 		display: flex;
 		align-items: flex-end;
+		padding: 0;
 	}
 
 	.sheet {
-		width: min(100%, 480px);
+		width: min(100%, 620px);
 		margin: 0 auto;
 		max-height: 92dvh;
 		background: var(--bg);
@@ -431,7 +444,8 @@
 	}
 
 	.header-action {
-		padding: 4px 10px;
+		min-height: 40px;
+		padding: 8px 12px;
 		border-radius: 8px;
 		border: 1px solid rgba(0, 0, 0, 0.06);
 		font-size: 11px;
@@ -663,7 +677,7 @@
 
 	.composer input {
 		width: 100%;
-		height: 34px;
+		height: 40px;
 		border-radius: 12px;
 		border: 1px solid rgba(0, 0, 0, 0.05);
 		background: rgba(255, 255, 255, 0.75);
@@ -713,5 +727,22 @@
 		font-size: 12px;
 		font-style: italic;
 		color: var(--text3);
+	}
+
+	@media (min-width: 1024px) {
+		.overlay {
+			align-items: center;
+			padding: 18px;
+		}
+
+		.sheet {
+			width: min(100%, 860px);
+			max-height: min(86dvh, 780px);
+			border-radius: 20px;
+		}
+
+		.drag-zone {
+			display: none;
+		}
 	}
 </style>

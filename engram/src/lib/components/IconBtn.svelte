@@ -2,7 +2,7 @@
 	let {
 		title,
 		active = false,
-		size = 34,
+		size = 40,
 		accent = 'var(--accent)',
 		disabled = false,
 		children,
@@ -86,5 +86,10 @@
 	.icon-btn:disabled {
 		opacity: 0.45;
 		cursor: not-allowed;
+	}
+
+	.icon-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-accent);
 	}
 </style>

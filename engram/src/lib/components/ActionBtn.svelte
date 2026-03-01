@@ -43,8 +43,8 @@
 <style>
 	.action-btn {
 		border: 0;
-		min-height: 34px;
-		padding: 7px 12px;
+		min-height: 40px;
+		padding: 8px 14px;
 		border-radius: 10px;
 		background: var(--btn);
 		color: #fff;
@@ -70,5 +70,10 @@
 		box-shadow: none;
 		transform: none;
 		cursor: not-allowed;
+	}
+
+	.action-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-accent);
 	}
 </style>

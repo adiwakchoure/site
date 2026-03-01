@@ -168,7 +168,7 @@
 
 	.hero-card h3 {
 		margin: 0;
-		font-size: 9px;
+		font-size: 10px;
 		color: var(--text3);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps-wide);
@@ -186,7 +186,7 @@
 	/* Supporting stats row */
 	.supporting-stats {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 8px;
 		margin-bottom: 12px;
 	}
@@ -218,7 +218,7 @@
 
 	.charts {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-columns: minmax(0, 1fr);
 		gap: 12px;
 		margin-bottom: 12px;
 	}
@@ -261,7 +261,7 @@
 		top: 104%;
 		left: 50%;
 		transform: translateX(-50%);
-		font-size: 8px;
+		font-size: 9px;
 		color: var(--text3);
 		font-family: var(--font-mono);
 	}
@@ -311,7 +311,7 @@
 	}
 
 	.week-label {
-		font-size: 7px;
+		font-size: 9px;
 		color: var(--text4);
 		font-family: var(--font-mono);
 		text-align: center;
@@ -324,7 +324,7 @@
 		display: flex;
 		align-items: center;
 		gap: 3px;
-		font-size: 7px;
+		font-size: 9px;
 		color: var(--text4);
 		font-family: var(--font-mono);
 	}
@@ -346,7 +346,7 @@
 	/* 3C: Contention — wider name column */
 	.resource-row {
 		display: grid;
-		grid-template-columns: 72px 1fr auto;
+		grid-template-columns: minmax(92px, 140px) 1fr auto;
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 5px;
@@ -354,7 +354,7 @@
 
 	.resource-name {
 		margin: 0;
-		font-size: 11px;
+		font-size: 12px;
 		font-weight: 300;
 		color: var(--text3);
 		text-align: right;
@@ -386,5 +386,32 @@
 		margin: 0;
 		font-size: 12px;
 		color: var(--text3);
+	}
+
+	@media (min-width: 640px) {
+		.supporting-stats {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+	}
+
+	@media (min-width: 768px) {
+		.charts {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.hero-number {
+			font-size: 44px;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.chart-card {
+			padding: 14px;
+		}
+
+		.bars,
+		.throughput {
+			height: 120px;
+		}
 	}
 </style>

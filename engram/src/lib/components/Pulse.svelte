@@ -78,6 +78,7 @@
 
 	function start(event: PointerEvent) {
 		dragging = true;
+		(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
 		scrubY = yToLocal(event.clientY);
 		onScrub({ date: pointAtScrub.date, active: pointAtScrub.active, overdue: pointAtScrub.overdue });
 	}
@@ -179,7 +180,8 @@
 <style>
 	.pulse {
 		position: relative;
-		width: 48px;
+		width: 52px;
+		min-height: 44px;
 		cursor: ns-resize;
 		touch-action: none;
 		user-select: none;
@@ -192,7 +194,7 @@
 
 	.tooltip {
 		position: absolute;
-		right: -6px;
+		right: calc(100% + 8px);
 		transform: translateY(-50%);
 		background: rgba(26, 26, 26, 0.9);
 		backdrop-filter: blur(12px);
@@ -203,6 +205,7 @@
 		animation: fadeIn 0.1s var(--ease);
 		pointer-events: none;
 		z-index: 3;
+		max-width: 160px;
 	}
 
 	.tooltip div,
@@ -224,5 +227,15 @@
 
 	.tooltip span {
 		color: #c0453a;
+	}
+
+	@media (min-width: 1024px) {
+		.pulse {
+			width: 62px;
+		}
+
+		.tooltip {
+			right: calc(100% + 12px);
+		}
 	}
 </style>

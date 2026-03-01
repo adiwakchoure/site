@@ -17,7 +17,7 @@
 	const filters: Array<'open' | 'overdue' | 'closed' | 'all'> = ['open', 'overdue', 'closed', 'all'];
 
 	let selectedTaskId = $state<string | null>(null);
-	let listHost: HTMLDivElement | null = null;
+	let listHost = $state<HTMLDivElement | null>(null);
 	let listHeight = $state(360);
 	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
 	let pulseHint = $state(false);
@@ -103,69 +103,78 @@
 {#if loading}
 	<Skeleton lines={5} />
 {:else}
-<section class="head-controls">
-	{#if scrub}
-		<div class="travel-banner">
-			<Clock size={14} />
-			<span>{scrub.date.toLocaleDateString()}</span>
-			<strong>{scrub.active} active</strong>
-		</div>
-	{:else}
-		<div class="filter-wrap">
-			{#each filters as filter}
-				<Pill
-					label={
-						filter === 'open'
-							? `Open (${openCount})`
-							: filter === 'overdue'
-								? `Overdue (${overdueCount})`
-								: filter === 'closed'
-									? `Closed (${closedCount})`
-									: 'All'
-					}
-					active={$activeFilter === filter}
-					onClick={() => activeFilter.set(filter)}
-				/>
-			{/each}
-		</div>
-	{/if}
-	<div class="sorts">
-		<button type="button" class:active={$loopSort === 'age'} onclick={() => loopSort.set('age')}>age</button>
-		<button type="button" class:active={$loopSort === 'priority'} onclick={() => loopSort.set('priority')}>priority</button>
-		<button type="button" class:active={$loopSort === 'deadline'} onclick={() => loopSort.set('deadline')}>deadline</button>
-	</div>
-</section>
-
-<section class="layout">
-	<div class="list-wrap" bind:this={listHost}>
-		<div class="list">
-			{#if sorted.length === 0}
-				<Empty label="No loops in this view" icon={true} hint="Use the dump bar below to capture what's on your mind" />
-			{:else}
-				{#each sorted as loop, index (loop.id)}
-					<LoopCard
-						loop={loop}
-						ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
-						stagger={Math.min(index * 18, 180)}
-						onSelect={(id) => (selectedTaskId = id)}
-						onSwipeAction={onSwipeAction}
+<div class="loops-page">
+	<section class="head-controls">
+		{#if scrub}
+			<div class="travel-banner">
+				<Clock size={14} />
+				<span>{scrub.date.toLocaleDateString()}</span>
+				<strong>{scrub.active} active</strong>
+			</div>
+		{:else}
+			<div class="filter-wrap">
+				{#each filters as filter}
+					<Pill
+						label={
+							filter === 'open'
+								? `Open (${openCount})`
+								: filter === 'overdue'
+									? `Overdue (${overdueCount})`
+									: filter === 'closed'
+										? `Closed (${closedCount})`
+										: 'All'
+						}
+						active={$activeFilter === filter}
+						onClick={() => activeFilter.set(filter)}
 					/>
 				{/each}
+			</div>
+		{/if}
+		<div class="sorts">
+			<button type="button" class:active={$loopSort === 'age'} onclick={() => loopSort.set('age')}>age</button>
+			<button type="button" class:active={$loopSort === 'priority'} onclick={() => loopSort.set('priority')}>priority</button>
+			<button type="button" class:active={$loopSort === 'deadline'} onclick={() => loopSort.set('deadline')}>deadline</button>
+		</div>
+	</section>
+
+	<section class="layout">
+		<div class="list-wrap" bind:this={listHost}>
+			<div class="list">
+				{#if sorted.length === 0}
+					<Empty label="No loops in this view" icon={true} hint="Use the dump bar below to capture what's on your mind" />
+				{:else}
+					{#each sorted as loop, index (loop.id)}
+						<LoopCard
+							loop={loop}
+							ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
+							stagger={Math.min(index * 18, 180)}
+							onSelect={(id) => (selectedTaskId = id)}
+							onSwipeAction={onSwipeAction}
+						/>
+					{/each}
+				{/if}
+			</div>
+		</div>
+		<div class="pulse-wrap">
+			<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
+			{#if pulseHint}
+				<div class="pulse-hint">Drag to time-travel</div>
 			{/if}
 		</div>
-	</div>
-	<div class="pulse-wrap">
-		<Pulse loops={loops} height={listHeight} onScrub={(value) => (scrub = value)} />
-		{#if pulseHint}
-			<div class="pulse-hint">Drag to time-travel</div>
-		{/if}
-	</div>
-</section>
+	</section>
+</div>
 
 <TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
 {/if}
 
 <style>
+	.loops-page {
+		display: grid;
+		grid-template-rows: auto 1fr;
+		gap: 10px;
+		min-height: 100%;
+	}
+
 	.head-controls {
 		display: grid;
 		grid-template-columns: 1fr auto;
@@ -236,7 +245,7 @@
 		grid-template-columns: 1fr 48px;
 		gap: 4px;
 		min-height: 0;
-		height: calc(100% - 44px);
+		height: 100%;
 	}
 
 	.list-wrap {
@@ -274,5 +283,38 @@
 		white-space: nowrap;
 		pointer-events: none;
 		animation: fadeUp 0.3s var(--ease-spring), fadeIn 0.3s var(--ease);
+	}
+
+	@media (max-width: 560px) {
+		.head-controls {
+			grid-template-columns: 1fr;
+			gap: 6px;
+		}
+
+		.sorts {
+			justify-content: flex-start;
+		}
+	}
+
+	@media (min-width: 768px) {
+		.loops-page {
+			gap: 12px;
+		}
+
+		.layout {
+			grid-template-columns: 1fr 56px;
+			gap: 8px;
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.layout {
+			grid-template-columns: 1fr 64px;
+			gap: 10px;
+		}
+
+		.list-wrap {
+			padding-right: 10px;
+		}
 	}
 </style>

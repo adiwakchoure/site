@@ -17,7 +17,8 @@
 		border: 1px solid transparent;
 		background: transparent;
 		border-radius: 8px;
-		padding: 5px 11px;
+		min-height: 40px;
+		padding: 8px 12px;
 		font-size: 12px;
 		font-weight: 300;
 		color: var(--text3);
@@ -30,5 +31,10 @@
 		box-shadow: var(--shadow-sm);
 		font-weight: 400;
 		color: var(--text);
+	}
+
+	button:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-accent);
 	}
 </style>

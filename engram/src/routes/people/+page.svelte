@@ -123,6 +123,8 @@
 	.detail {
 		display: grid;
 		gap: 12px;
+		max-width: 920px;
+		margin: 0 auto;
 	}
 
 	.back {
@@ -152,7 +154,7 @@
 
 	.stat-grid {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 8px;
 	}
 
@@ -165,6 +167,7 @@
 	.resolved-item {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: 6px;
 		font-size: 13px;
 		padding: 8px 10px;
@@ -188,5 +191,22 @@
 		margin: 0;
 		font-size: 12px;
 		color: var(--text3);
+	}
+
+	@media (min-width: 768px) {
+		.list {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 10px;
+		}
+
+		.stat-grid {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.detail {
+			gap: 14px;
+		}
 	}
 </style>

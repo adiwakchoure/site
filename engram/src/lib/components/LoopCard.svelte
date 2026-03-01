@@ -37,6 +37,8 @@
 	const swipeProgress = $derived(Math.min(1, Math.abs(swipeX) / 96));
 	const showCloseAffordance = $derived(loop.state === 'open' && swipeX < 0);
 	const showReopenAffordance = $derived(loop.state === 'closed' && swipeX > 0);
+	const swipeLimit = 108;
+	const swipeThreshold = 72;
 
 	function resetSwipe() {
 		swiping = false;
@@ -65,7 +67,7 @@
 		}
 		if (!swiping) return;
 		event.preventDefault();
-		const clamp = Math.max(-96, Math.min(96, dx));
+		const clamp = Math.max(-swipeLimit, Math.min(swipeLimit, dx));
 		swipeX = clamp;
 	}
 
@@ -73,14 +75,24 @@
 		if (pointerId !== event.pointerId) return;
 		press = false;
 		if (swiping) {
-			const threshold = 62;
-			const shouldClose = loop.state === 'open' && swipeX <= -threshold;
-			const shouldReopen = loop.state === 'closed' && swipeX >= threshold;
+			const shouldClose = loop.state === 'open' && swipeX <= -swipeThreshold;
+			const shouldReopen = loop.state === 'closed' && swipeX >= swipeThreshold;
 			if (shouldClose || shouldReopen) {
 				onSwipeAction?.(loop.id, shouldClose ? 'close' : 'reopen');
 			}
 		}
 		resetSwipe();
+	}
+
+	function onCardKeydown(event: KeyboardEvent) {
+		if (event.key === 'ArrowLeft' && loop.state === 'open') {
+			event.preventDefault();
+			onSwipeAction?.(loop.id, 'close');
+		}
+		if (event.key === 'ArrowRight' && loop.state === 'closed') {
+			event.preventDefault();
+			onSwipeAction?.(loop.id, 'reopen');
+		}
 	}
 </script>
 
@@ -121,6 +133,7 @@
 		onpointerup={onCardPointerEnd}
 		onpointercancel={onCardPointerEnd}
 		onlostpointercapture={onCardPointerEnd}
+		onkeydown={onCardKeydown}
 		onclick={() => {
 			if (!ghost && !suppressClick) onSelect(loop.id);
 			suppressClick = false;
@@ -154,6 +167,7 @@
 
 	.card {
 		width: 100%;
+		min-height: 58px;
 		display: grid;
 		grid-template-columns: 1fr auto;
 		gap: 10px;
