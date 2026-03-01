@@ -316,3 +316,34 @@ select {
 		transform: translateY(6px) scale(0.97);
 	}
 }
+
+@keyframes orbPulse {
+	0%,
+	100% {
+		box-shadow: 0 0 4px rgba(160, 113, 74, 0.2);
+	}
+	50% {
+		box-shadow: 0 0 8px rgba(160, 113, 74, 0.35);
+	}
+}
+
+@keyframes orbBounce {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-4px);
+	}
+}
+
+@keyframes waveScaleIn {
+	from {
+		transform: scaleX(0);
+		opacity: 0;
+	}
+	to {
+		transform: scaleX(1);
+		opacity: 1;
+	}
+}

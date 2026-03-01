@@ -1,34 +1,55 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
-	import { Check, Clipboard, Loader2, Mic, Send, Square, X } from 'lucide-svelte';
-	import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
+	import { Check, Clipboard, Mic, Plus, Send, X } from 'lucide-svelte';
+	import { putDump, putSuggestionsForDump, setSuggestionStatus, createLoop, putLoopPerson } from '$db/local';
 	import { parsePhase, suggestionContextStore, suggestionsStore, transcriptStore } from '$stores/app';
 	import { applySuggestion } from '$lib/suggestions';
+	import { haptic } from '$lib/utils';
 	import type { SuggestedAction } from '$types/models';
 	import IconBtn from '$components/IconBtn.svelte';
-	import ActionBtn from '$components/ActionBtn.svelte';
-	import Badge from '$components/Badge.svelte';
 	import Toast from '$components/Toast.svelte';
+	import Orb from '$components/dump/Orb.svelte';
+	import PlaceholderText from '$components/dump/PlaceholderText.svelte';
+	import Waveform from '$components/dump/Waveform.svelte';
+	import SuggestionCard from '$components/dump/SuggestionCard.svelte';
+	import QuickCreateForm from '$components/dump/QuickCreateForm.svelte';
 
+	// --- State machine ---
+	type DumpBarMode =
+		| { kind: 'resting' }
+		| { kind: 'text' }
+		| { kind: 'voice' }
+		| { kind: 'processing'; source: 'text' | 'voice'; transcript: string }
+		| { kind: 'suggestions'; transcript: string; items: SuggestedAction[] }
+		| { kind: 'quickcreate' };
+
+	let mode = $state<DumpBarMode>({ kind: 'resting' });
+
+	// --- Shared state ---
 	let text = $state('');
-	let loading = $state(false);
-	let recording = $state(false);
-	let expanded = $state(false);
-	let allProcessed = $state(false);
-	let recorder: MediaRecorder | null = null;
-	let audioChunks: Blob[] = [];
-	let recordError = $state<string | null>(null);
-	let mediaStream: MediaStream | null = null;
-	let audioCtx: AudioContext | null = null;
-	let analyser: AnalyserNode | null = null;
-	let rafId: number | null = null;
-	let micLevel = $state(0.12);
-	let bars = $state<number[]>(Array.from({ length: 12 }, () => 0.14));
 	let toast = $state<string | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | null = null;
-	let acceptedIds = $state<Set<string>>(new Set());
-	const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+	let durationSec = $state(0);
+	let durationInterval: ReturnType<typeof setInterval> | null = null;
+	let allDone = $state(false);
+
+	// Audio recording
+	let recorder: MediaRecorder | null = null;
+	let audioChunks: Blob[] = [];
+	let mediaStream: MediaStream | null = null;
+	let audioCtx: AudioContext | null = null;
+	let analyser = $state<AnalyserNode | null>(null);
+	let rafId: number | null = null;
+
+	// Processing state
+	let wordReveal = $state<string[]>([]);
+	let revealIndex = $state(0);
+	let revealTimer: ReturnType<typeof setInterval> | null = null;
+	let slowThinking = $state(false);
+	let slowTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 	type DumpResponse = {
 		transcript: string;
@@ -38,72 +59,44 @@
 		suggestions: SuggestedAction[];
 	};
 
-	async function submitDumpAudio(audio: Blob) {
-		if (loading) return;
-		loading = true;
-		expanded = true;
-		recordError = null;
-		parsePhase.set('transcribing');
+	// --- Height class for CSS ---
+	let heightClass = $derived(mode.kind);
 
-		const now = new Date().toISOString();
-		const dump = await putDump({ raw: '[voice]', source: 'voice', transcript: null, createdAt: now, processed: 0 });
-		suggestionContextStore.set({ dumpId: dump.id });
+	// --- Suggestion count ---
+	let suggestionCount = $derived(mode.kind === 'suggestions' ? mode.items.length : 0);
 
-		try {
-			const form = new FormData();
-			form.set('audio', audio, 'dump.webm');
-			if (!browser) return;
-			const res = await window.fetch('/api/dump', {
-				method: 'POST',
-				body: form
-			});
-			if (!res.ok) throw new Error('parse failed');
-			const body = (await res.json()) as DumpResponse;
-			transcriptStore.set({
-				text: body.transcript?.trim() || 'Could not confidently transcribe. Try speaking closer to the mic.',
-				source: 'voice',
-				at: new Date().toISOString()
-			});
-			parsePhase.set('parsing');
-			await wait(850);
-			parsePhase.set('suggesting');
-			await wait(260);
-			const records = await putSuggestionsForDump(dump.id, body.suggestions ?? []);
-			suggestionsStore.set((body.suggestions ?? []).map((item, idx) => ({ ...item, suggestionId: records[idx]?.id })));
-		} catch {
-			transcriptStore.set({
-				text: 'Could not confidently transcribe. Try speaking closer to the mic.',
-				source: 'voice',
-				at: new Date().toISOString()
-			});
-			parsePhase.set('suggesting');
-			const fallback: SuggestedAction[] = [
-				{
-					action: 'open_loop',
-					title: 'Review voice dump',
-					priority: 'P1',
-					energy: 'active',
-					confidence: browser && navigator.onLine ? 'low' : 'medium'
-				}
-			];
-			const records = await putSuggestionsForDump(dump.id, fallback);
-			suggestionsStore.set(fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id })));
-		} finally {
-			parsePhase.set('idle');
-			loading = false;
-		}
+	// --- Formatted duration ---
+	let durationDisplay = $derived(`${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}`);
+
+	// --- Revealed transcript ---
+	let revealedText = $derived(wordReveal.slice(0, revealIndex).join(' '));
+
+	// --- Business logic ---
+
+	function toResting() {
+		mode = { kind: 'resting' };
+		text = '';
+		allDone = false;
+		wordReveal = [];
+		revealIndex = 0;
+		slowThinking = false;
+		if (revealTimer) clearInterval(revealTimer);
+		if (slowTimer) clearTimeout(slowTimer);
+		suggestionsStore.set([]);
+		suggestionContextStore.set({ dumpId: null });
 	}
 
 	async function submitDumpText() {
 		const raw = text.trim();
-		if (!raw || loading) return;
+		if (!raw) return;
+		if (mode.kind === 'processing') return;
 
-		loading = true;
 		const submitted = text;
 		text = '';
-		expanded = true;
-		recordError = null;
+		mode = { kind: 'processing', source: 'text', transcript: submitted };
 		parsePhase.set('parsing');
+
+		startSlowTimer();
 
 		const now = new Date().toISOString();
 		const dump = await putDump({ raw, source: 'text', transcript: raw, createdAt: now, processed: 0 });
@@ -126,57 +119,125 @@
 			parsePhase.set('suggesting');
 			await wait(160);
 			const records = await putSuggestionsForDump(dump.id, body.suggestions ?? []);
-			suggestionsStore.set((body.suggestions ?? []).map((item, idx) => ({ ...item, suggestionId: records[idx]?.id })));
+			const items = (body.suggestions ?? []).map((item, idx) => ({
+				...item,
+				suggestionId: records[idx]?.id
+			}));
+			suggestionsStore.set(items);
+			clearSlowTimer();
+			mode = { kind: 'suggestions', transcript: body.transcript?.trim() || submitted, items };
 		} catch {
-			transcriptStore.set({
-				text: submitted,
-				source: 'text',
-				at: new Date().toISOString()
-			});
+			transcriptStore.set({ text: submitted, source: 'text', at: new Date().toISOString() });
 			parsePhase.set('suggesting');
 			const fallback: SuggestedAction[] = [
 				{ action: 'open_loop', title: submitted, priority: 'P1', energy: 'active', confidence: browser && navigator.onLine ? 'low' : 'medium' }
 			];
 			const records = await putSuggestionsForDump(dump.id, fallback);
-			suggestionsStore.set(fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id })));
+			const items = fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id }));
+			suggestionsStore.set(items);
+			clearSlowTimer();
+			mode = { kind: 'suggestions', transcript: submitted, items };
 		} finally {
 			parsePhase.set('idle');
-			loading = false;
 		}
 	}
 
+	async function submitDumpAudio(audio: Blob) {
+		if (mode.kind === 'processing') return;
+
+		mode = { kind: 'processing', source: 'voice', transcript: '' };
+		parsePhase.set('transcribing');
+		startSlowTimer();
+
+		const now = new Date().toISOString();
+		const dump = await putDump({ raw: '[voice]', source: 'voice', transcript: null, createdAt: now, processed: 0 });
+		suggestionContextStore.set({ dumpId: dump.id });
+
+		try {
+			const form = new FormData();
+			form.set('audio', audio, 'dump.webm');
+			if (!browser) return;
+			const res = await window.fetch('/api/dump', { method: 'POST', body: form });
+			if (!res.ok) throw new Error('parse failed');
+			const body = (await res.json()) as DumpResponse;
+			const transcript = body.transcript?.trim() || 'Could not confidently transcribe. Try speaking closer to the mic.';
+			transcriptStore.set({ text: transcript, source: 'voice', at: new Date().toISOString() });
+
+			// Word-by-word reveal
+			startWordReveal(transcript);
+
+			parsePhase.set('parsing');
+			await wait(850);
+			parsePhase.set('suggesting');
+			await wait(260);
+			const records = await putSuggestionsForDump(dump.id, body.suggestions ?? []);
+			const items = (body.suggestions ?? []).map((item, idx) => ({
+				...item,
+				suggestionId: records[idx]?.id
+			}));
+			suggestionsStore.set(items);
+			clearSlowTimer();
+			stopWordReveal();
+			mode = { kind: 'suggestions', transcript, items };
+		} catch {
+			const fallbackText = 'Could not confidently transcribe. Try speaking closer to the mic.';
+			transcriptStore.set({ text: fallbackText, source: 'voice', at: new Date().toISOString() });
+			parsePhase.set('suggesting');
+			const fallback: SuggestedAction[] = [
+				{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', energy: 'active', confidence: browser && navigator.onLine ? 'low' : 'medium' }
+			];
+			const records = await putSuggestionsForDump(dump.id, fallback);
+			const items = fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id }));
+			suggestionsStore.set(items);
+			clearSlowTimer();
+			stopWordReveal();
+			mode = { kind: 'suggestions', transcript: fallbackText, items };
+		} finally {
+			parsePhase.set('idle');
+		}
+	}
+
+	function startWordReveal(transcript: string) {
+		wordReveal = transcript.split(/\s+/);
+		revealIndex = 0;
+		revealTimer = setInterval(() => {
+			if (revealIndex < wordReveal.length) {
+				revealIndex++;
+			} else if (revealTimer) {
+				clearInterval(revealTimer);
+			}
+		}, 20);
+	}
+
+	function stopWordReveal() {
+		if (revealTimer) clearInterval(revealTimer);
+		revealIndex = wordReveal.length;
+	}
+
+	function startSlowTimer() {
+		slowThinking = false;
+		if (slowTimer) clearTimeout(slowTimer);
+		slowTimer = setTimeout(() => {
+			slowThinking = true;
+		}, 4000);
+	}
+
+	function clearSlowTimer() {
+		slowThinking = false;
+		if (slowTimer) clearTimeout(slowTimer);
+	}
+
 	async function startRecording() {
-		if (!browser || loading) return;
-		recordError = null;
+		if (!browser || mode.kind === 'processing') return;
 		try {
 			mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			audioCtx = new AudioContext();
 			const source = audioCtx.createMediaStreamSource(mediaStream);
-			analyser = audioCtx.createAnalyser();
-			analyser.fftSize = 256;
-			analyser.smoothingTimeConstant = 0.82;
-			source.connect(analyser);
-
-			const tick = () => {
-				if (!analyser) return;
-				const fft = new Uint8Array(analyser.frequencyBinCount);
-				analyser.getByteFrequencyData(fft);
-				const activeBins = Array.from(fft).slice(2, 66);
-				const mean = activeBins.reduce((sum, v) => sum + v, 0) / activeBins.length;
-				micLevel = Math.max(0.08, Math.min(1, mean / 160));
-
-				const nextBars: number[] = [];
-				const bucket = Math.floor(activeBins.length / 12);
-				for (let i = 0; i < 12; i++) {
-					const start = i * bucket;
-					const chunk = activeBins.slice(start, start + bucket);
-					const chunkMean = chunk.reduce((sum, v) => sum + v, 0) / Math.max(1, chunk.length);
-					nextBars.push(Math.max(0.12, Math.min(1, chunkMean / 210)));
-				}
-				bars = nextBars;
-				rafId = requestAnimationFrame(tick);
-			};
-			tick();
+			const an = audioCtx.createAnalyser();
+			an.fftSize = 256;
+			an.smoothingTimeConstant = 0.82;
+			source.connect(an);
+			analyser = an;
 
 			recorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
 			audioChunks = [];
@@ -186,7 +247,7 @@
 			};
 
 			recorder.onstop = async () => {
-				mediaStream?.getTracks().forEach((track) => track.stop());
+				mediaStream?.getTracks().forEach((t) => t.stop());
 				mediaStream = null;
 				if (rafId !== null) cancelAnimationFrame(rafId);
 				rafId = null;
@@ -195,8 +256,6 @@
 					await audioCtx.close().catch(() => {});
 					audioCtx = null;
 				}
-				micLevel = 0.12;
-				bars = Array.from({ length: 12 }, () => 0.14);
 				const blob = new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' });
 				recorder = null;
 				audioChunks = [];
@@ -204,17 +263,23 @@
 			};
 
 			recorder.start();
-			recording = true;
+			durationSec = 0;
+			durationInterval = setInterval(() => {
+				durationSec++;
+			}, 1000);
+			mode = { kind: 'voice' };
+			haptic(30);
 		} catch {
-			parsePhase.set('idle');
-			recordError = 'Microphone permission denied or unavailable';
+			showToast('Microphone unavailable');
 		}
 	}
 
 	function stopRecording() {
 		if (!recorder || recorder.state === 'inactive') return;
-		recording = false;
+		if (durationInterval) clearInterval(durationInterval);
+		durationInterval = null;
 		recorder.stop();
+		haptic([15, 50, 15]);
 	}
 
 	async function pasteClipboard() {
@@ -223,46 +288,83 @@
 			const clip = await navigator.clipboard.readText();
 			if (clip.trim()) {
 				text = clip;
-				expanded = true;
+				mode = { kind: 'text' };
 			}
 		} catch {
-			recordError = 'Clipboard unavailable';
+			showToast('Clipboard unavailable');
 		}
 	}
 
 	async function acceptSuggestion(item: SuggestedAction) {
-		if (item.suggestionId) {
-			acceptedIds = new Set([...acceptedIds, item.suggestionId]);
-		}
+		if (mode.kind !== 'suggestions') return;
+		haptic(20);
 		await applySuggestion(item, $suggestionContextStore.dumpId);
-		setTimeout(() => {
-			suggestionsStore.update((items) => items.filter((entry) => entry !== item));
-		}, 240);
 		if (item.suggestionId) {
 			await setSuggestionStatus(item.suggestionId, 'accepted');
 		}
+		const remaining = mode.items.filter((entry) => entry !== item);
+		suggestionsStore.set(remaining);
 		showToast('Suggestion accepted');
-		checkAllProcessed();
+		if (remaining.length === 0) {
+			finishAllSuggestions();
+		} else {
+			mode = { ...mode, items: remaining };
+		}
 	}
 
 	async function dismissSuggestion(item: SuggestedAction) {
+		if (mode.kind !== 'suggestions') return;
 		if (item.suggestionId) {
 			await setSuggestionStatus(item.suggestionId, 'dismissed');
 		}
-		suggestionsStore.update((items) => items.filter((entry) => entry !== item));
-		checkAllProcessed();
+		const remaining = mode.items.filter((entry) => entry !== item);
+		suggestionsStore.set(remaining);
+		if (remaining.length === 0) {
+			finishAllSuggestions();
+		} else {
+			mode = { ...mode, items: remaining };
+		}
 	}
 
-	function checkAllProcessed() {
-		if ($suggestionsStore.length > 1) return;
-		allProcessed = true;
+	function acceptAll() {
+		if (mode.kind !== 'suggestions') return;
+		const items = [...mode.items];
+		items.forEach((item, i) => {
+			setTimeout(() => {
+				haptic(15);
+				acceptSuggestion(item);
+			}, i * 30);
+		});
+	}
+
+	function finishAllSuggestions() {
+		allDone = true;
 		setTimeout(() => {
-			allProcessed = false;
-			expanded = false;
-			acceptedIds = new Set();
-			suggestionsStore.set([]);
-			suggestionContextStore.set({ dumpId: null });
-		}, 1200);
+			toResting();
+		}, 1000);
+	}
+
+	async function handleQuickCreate(data: {
+		title: string;
+		priority: 'P0' | 'P1' | 'P2';
+		energy: 'active' | 'waiting';
+		people: Array<{ id: string; name: string }>;
+		project: { id: string; name: string } | null;
+		deadline: string | null;
+	}) {
+		const loop = await createLoop({
+			title: data.title,
+			priority: data.priority,
+			energy: data.energy,
+			deadline: data.deadline,
+			projectId: data.project?.id ?? null
+		});
+		for (const person of data.people) {
+			await putLoopPerson(loop.id, person.id, 'involved');
+		}
+		haptic(30);
+		showToast('Loop created');
+		toResting();
 	}
 
 	function showToast(message: string) {
@@ -273,131 +375,156 @@
 		}, 2500);
 	}
 
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && mode.kind !== 'resting') {
+			e.preventDefault();
+			if (mode.kind === 'voice') {
+				stopRecording();
+			} else if (mode.kind === 'processing') {
+				// Can't cancel processing
+			} else {
+				toResting();
+			}
+		}
+	}
+
 	onDestroy(() => {
 		if (rafId !== null) cancelAnimationFrame(rafId);
-		mediaStream?.getTracks().forEach((track) => track.stop());
+		mediaStream?.getTracks().forEach((t) => t.stop());
 		if (audioCtx) void audioCtx.close();
 		if (toastTimer) clearTimeout(toastTimer);
+		if (durationInterval) clearInterval(durationInterval);
+		if (revealTimer) clearInterval(revealTimer);
+		if (slowTimer) clearTimeout(slowTimer);
 	});
 </script>
 
-<section class="dump">
-	{#if $suggestionsStore.length > 0}
-		<section class="suggestion-tray">
-			{#each $suggestionsStore as item, i (`${item.action}-${i}`)}
-				<article
-					class="suggestion-card"
-					class:accepted={Boolean(item.suggestionId && acceptedIds.has(item.suggestionId))}
-					style={`animation-delay:${i * 50}ms`}
-				>
-					<div class="suggestion-head">
-						<Badge
-							label={
-								item.action === 'add_note'
-									? 'update'
-									: item.action === 'open_loop'
-										? 'open loop'
-										: item.action === 'close_loop'
-											? 'archive loop'
-											: item.action === 'update_loop'
-												? 'update loop'
-												: item.action.replace('_', ' ')
-							}
-							color={item.action === 'open_loop' ? '#a0714a' : item.action === 'close_loop' ? '#3d8a4a' : item.action === 'update_loop' ? '#6e63a0' : '#5a5651'}
-						/>
-						<div class="suggestion-actions">
-							<ActionBtn title="Accept" onClick={() => acceptSuggestion(item)}>Accept</ActionBtn>
-							<IconBtn title="Dismiss" size={26} onClick={() => dismissSuggestion(item)}>
-								<X size={14} />
-							</IconBtn>
-						</div>
-					</div>
-					{#if item.action === 'add_note'}
-						<p class="note-body">{item.text}</p>
-					{:else if item.action === 'open_loop'}
-						<p class="open-title">{item.title ?? 'Untitled loop'}</p>
-						<div class="suggestion-tags">
-							{#each item.people ?? [] as person}
-								<Badge label={person.name} color="#6e63a0" />
-							{/each}
-							{#if item.project}<Badge label={item.project} color="#a0714a" />{/if}
-							{#if item.priority}<Badge label={item.priority} color={item.priority === 'P0' ? '#c0453a' : item.priority === 'P1' ? '#a07c28' : '#8a857f'} />{/if}
-						</div>
-					{:else}
-						<p class="suggestion-body">{item.title ?? item.name ?? 'Untitled suggestion'}</p>
-					{/if}
-				</article>
-			{/each}
-			{#if allProcessed}
-				<div class="all-processed"><Check size={12} /> All processed</div>
-			{/if}
-		</section>
-	{/if}
+<svelte:window onkeydown={handleKeydown} />
 
-	{#if loading}
-		<div class="shimmer"></div>
-	{/if}
+<section class="pill {heightClass}" class:voice={mode.kind === 'voice'}>
+	{#if mode.kind === 'resting'}
+		<!-- Resting: orb + placeholder + quick create + mic -->
+		<div class="resting-row">
+			<div
+				class="resting-tap"
+				role="button"
+				tabindex="0"
+				onclick={() => (mode = { kind: 'text' })}
+				onkeydown={(e) => { if (e.key === 'Enter') mode = { kind: 'text' }; }}
+			>
+				<Orb mode="resting" />
+				<PlaceholderText />
+			</div>
+			<div class="resting-actions">
+				<IconBtn title="Quick create" size={34} onClick={() => (mode = { kind: 'quickcreate' })}>
+					<Plus size={16} />
+				</IconBtn>
+				<IconBtn title="Record voice" size={34} onClick={startRecording}>
+					<Mic size={16} />
+				</IconBtn>
+			</div>
+		</div>
 
-	<div class="input-shell" class:expanded class:recording={recording}>
-		{#if expanded}
+	{:else if mode.kind === 'text'}
+		<!-- Text: textarea + toolbar -->
+		<div class="text-mode">
 			<textarea
+				class="text-area"
 				bind:value={text}
 				placeholder="What's on your mind..."
 				rows="3"
-				onkeydown={(event) => {
-					if (event.key === 'Enter' && !event.shiftKey) {
-						event.preventDefault();
+				autofocus
+				onkeydown={(e) => {
+					if (e.key === 'Enter' && !e.shiftKey) {
+						e.preventDefault();
 						submitDumpText();
 					}
 				}}
 			></textarea>
-			<div class="toolbar">
-				<div class="left">
-					<IconBtn title={recording ? 'Stop recording' : 'Record voice'} active={recording} size={38} onClick={() => (recording ? stopRecording() : startRecording())}>
-						{#if recording}
-							<Square size={16} />
-						{:else}
-							<Mic size={16} />
-						{/if}
+			<div class="text-toolbar">
+				<div class="text-toolbar-left">
+					<Orb mode="text" />
+					<IconBtn title="Paste" size={30} onClick={pasteClipboard}>
+						<Clipboard size={14} />
 					</IconBtn>
-					<IconBtn title="Paste" size={38} onClick={pasteClipboard}><Clipboard size={16} /></IconBtn>
-					<IconBtn title="Clear" size={38} onClick={() => (text = '')}><X size={16} /></IconBtn>
-				</div>
-				<ActionBtn title="Send" disabled={loading || !text.trim()} onClick={submitDumpText}>
-					{#if loading}
-						<Loader2 style="animation:spin 1s linear infinite" size={14} />
-					{:else}
-						<Send size={14} />
-					{/if}
-				</ActionBtn>
-			</div>
-		{:else}
-			<div class="collapsed-row">
-				<div class="faux-input" role="button" tabindex="0" onclick={() => (expanded = true)} onkeydown={() => (expanded = true)}>
-					What's on your mind...
-				</div>
-				<div class="collapsed-actions">
-					<IconBtn title={recording ? 'Stop recording' : 'Record voice'} active={recording} size={38} onClick={() => (recording ? stopRecording() : startRecording())}>
-						{#if recording}
-							<Square size={16} />
-						{:else}
-							<Mic size={16} />
-						{/if}
+					<IconBtn title="Clear" size={30} onClick={() => { text = ''; }}>
+						<X size={14} />
 					</IconBtn>
-					<IconBtn title="Paste" size={38} onClick={pasteClipboard}><Clipboard size={16} /></IconBtn>
 				</div>
+				<button
+					class="send-btn"
+					class:enabled={!!text.trim()}
+					disabled={!text.trim()}
+					title="Send"
+					onclick={submitDumpText}
+				>
+					<Send size={14} />
+				</button>
 			</div>
-		{/if}
-		{#if recording || $parsePhase === 'transcribing'}
-			<div class="wave">
-				{#each bars as bar, i (`bar-${i}`)}
-					<span style={`--h:${Math.round(bar * 100)}%; --d:${i * 16}ms;`}></span>
-				{/each}
+		</div>
+
+	{:else if mode.kind === 'voice'}
+		<!-- Voice: waveform + duration + done -->
+		<div class="voice-mode" role="button" tabindex="0" onclick={stopRecording} onkeydown={(e) => { if (e.key === 'Enter') stopRecording(); }}>
+			<Waveform {analyser} active={true} />
+			<div class="voice-footer">
+				<Orb mode="voice" />
+				<span class="duration">{durationDisplay}</span>
+				<button class="done-pill" onclick={(e) => { e.stopPropagation(); stopRecording(); }}>Done</button>
 			</div>
-		{/if}
-	</div>
-	{#if recordError}
-		<p class="error">{recordError}</p>
+		</div>
+
+	{:else if mode.kind === 'processing'}
+		<!-- Processing: transcript reveal + orb dots -->
+		<div class="processing-mode">
+			{#if mode.source === 'voice' && wordReveal.length > 0}
+				<p class="transcript">"{revealedText}"</p>
+			{:else if mode.source === 'text'}
+				<p class="transcript">"{mode.transcript}"</p>
+			{/if}
+			<div class="processing-footer">
+				<Orb mode="processing" />
+				{#if slowThinking}
+					<span class="slow-text">Still thinking...</span>
+				{/if}
+			</div>
+		</div>
+
+	{:else if mode.kind === 'suggestions'}
+		<!-- Suggestions: transcript + cards + footer -->
+		<div class="suggestions-mode">
+			<p class="suggestion-transcript">{mode.transcript}</p>
+			<div class="suggestion-cards">
+				{#if allDone}
+					<div class="all-done">
+						<Check size={12} /> All done
+					</div>
+				{:else}
+					{#each mode.items as item, i (`${item.action}-${item.suggestionId ?? i}`)}
+						<SuggestionCard
+							{item}
+							stagger={i * 50}
+							onAccept={() => acceptSuggestion(item)}
+							onDismiss={() => dismissSuggestion(item)}
+						/>
+					{/each}
+				{/if}
+			</div>
+			<div class="suggestion-footer">
+				<Orb mode="suggestions" />
+				<span class="action-count">{suggestionCount} action{suggestionCount !== 1 ? 's' : ''}</span>
+				{#if suggestionCount >= 2 && !allDone}
+					<button class="accept-all-pill" onclick={acceptAll}>Accept all</button>
+				{/if}
+			</div>
+		</div>
+
+	{:else if mode.kind === 'quickcreate'}
+		<!-- Quick Create form -->
+		<QuickCreateForm
+			onSubmit={handleQuickCreate}
+			onCancel={toResting}
+		/>
 	{/if}
 </section>
 
@@ -406,88 +533,243 @@
 {/if}
 
 <style>
-	.dump {
-		background: rgba(250, 249, 247, 0.95);
-		padding: 0 8px 6px;
-	}
-
-	.suggestion-tray {
-		max-height: 240px;
-		overflow: auto;
-		display: grid;
-		gap: 8px;
-		padding: 8px 0;
-		border-top: 1px solid rgba(0, 0, 0, 0.05);
-		background: linear-gradient(to bottom, rgba(242, 240, 237, 0.5), rgba(250, 249, 247, 0.8));
-	}
-
-	.suggestion-card {
-		border-radius: 12px;
+	/* --- Pill container --- */
+	.pill {
+		margin: 0 8px 6px;
+		border-radius: 20px;
 		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		box-shadow: var(--shadow-sm);
-		padding: 12px;
-		animation: cardIn 0.25s var(--ease-spring);
+		border: 1px solid rgba(0, 0, 0, 0.06);
+		box-shadow: var(--shadow-md);
+		padding: 0 14px;
+		overflow: hidden;
 		transition:
-			opacity var(--dur-fast) var(--ease),
-			background var(--dur-fast) var(--ease),
-			border-color var(--dur-fast) var(--ease),
-			transform var(--dur-base) var(--ease-spring);
+			height 0.3s var(--ease-spring),
+			border-color 0.2s var(--ease);
 	}
 
-	.suggestion-card.accepted {
-		border-color: color-mix(in srgb, var(--green) 30%, transparent);
-		background: color-mix(in srgb, var(--green) 8%, #fff);
-		opacity: 0.4;
-		transform: scale(0.985);
+	.pill.voice {
+		border-color: rgba(160, 113, 74, 0.15);
 	}
 
-	.suggestion-head {
+	/* Height per mode */
+	.pill.resting {
+		height: 52px;
+	}
+
+	.pill.text {
+		height: 160px;
+	}
+
+	.pill.voice {
+		height: 120px;
+	}
+
+	.pill.processing {
+		height: 100px;
+	}
+
+	.pill.suggestions {
+		height: auto;
+		max-height: 320px;
+	}
+
+	.pill.quickcreate {
+		height: auto;
+		min-height: 220px;
+	}
+
+	/* --- Resting --- */
+	.resting-row {
+		height: 52px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 10px;
 	}
 
-	.suggestion-actions {
+	.resting-tap {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		cursor: pointer;
+		min-width: 0;
+	}
+
+	.resting-actions {
+		display: inline-flex;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	/* --- Text --- */
+	.text-mode {
+		display: flex;
+		flex-direction: column;
+		padding: 10px 0;
+		gap: 8px;
+		height: 100%;
+	}
+
+	.text-area {
+		flex: 1;
+		width: 100%;
+		min-height: 60px;
+		resize: none;
+		border: none;
+		background: transparent;
+		font-size: 14px;
+		font-weight: var(--weight-light);
+		line-height: var(--leading-relaxed);
+		color: var(--text);
+		outline: none;
+	}
+
+	.text-area::placeholder {
+		color: var(--text4);
+	}
+
+	.text-toolbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.text-toolbar-left {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
 	}
 
-	.suggestion-body {
-		margin: 8px 0 2px;
-		font-size: 13px;
-		font-weight: var(--weight-light);
-		line-height: var(--leading-normal);
-		color: var(--text2);
+	.send-btn {
+		width: 34px;
+		height: 34px;
+		border-radius: 50%;
+		border: none;
+		background: var(--surface);
+		color: var(--text4);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: not-allowed;
+		transition: all 0.2s var(--ease-spring);
 	}
 
-	.open-title {
-		margin: 8px 0 5px;
+	.send-btn.enabled {
+		background: var(--accent);
+		color: #fff;
+		cursor: pointer;
+		box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent);
+	}
+
+	.send-btn.enabled:active {
+		transform: scale(0.92);
+	}
+
+	/* --- Voice --- */
+	.voice-mode {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 14px;
+		padding: 16px 0;
+		height: 100%;
+		cursor: pointer;
+	}
+
+	.voice-footer {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+	}
+
+	.duration {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--text3);
+	}
+
+	.done-pill {
+		padding: 5px 16px;
+		border-radius: 14px;
+		border: none;
+		background: var(--accent);
+		color: #fff;
+		font-size: 12px;
+		font-weight: 400;
+		cursor: pointer;
+		transition: transform 0.15s var(--ease-spring);
+	}
+
+	.done-pill:active {
+		transform: scale(0.95);
+	}
+
+	/* --- Processing --- */
+	.processing-mode {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 12px;
+		padding: 16px 0;
+		height: 100%;
+	}
+
+	.transcript {
 		font-family: var(--font-serif);
 		font-size: 15px;
-		font-weight: var(--weight-normal);
-		line-height: var(--leading-tight);
-		letter-spacing: var(--tracking-tight);
-		color: var(--text);
-	}
-
-	.suggestion-tags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 3px;
-	}
-
-	.note-body {
-		margin: 8px 0 2px;
-		font-size: 12px;
 		font-style: italic;
 		color: var(--text2);
 		line-height: var(--leading-normal);
+		margin: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
 	}
 
-	.all-processed {
+	.processing-footer {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.slow-text {
+		font-size: 12px;
+		font-weight: 300;
+		color: var(--text4);
+		animation: fadeIn 0.4s var(--ease);
+	}
+
+	/* --- Suggestions --- */
+	.suggestions-mode {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 12px 0;
+		overflow: hidden;
+	}
+
+	.suggestion-transcript {
+		font-size: 13px;
+		font-style: italic;
+		color: var(--text3);
+		margin: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.suggestion-cards {
+		display: grid;
+		gap: 8px;
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.all-done {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -495,104 +777,37 @@
 		font-weight: 300;
 		color: var(--green);
 		justify-self: center;
-		padding: 4px 0;
+		padding: 8px 0;
 		animation: fadeIn 0.2s var(--ease);
 	}
 
-	.shimmer {
-		height: 2px;
-		background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 40%, transparent), transparent);
-		background-size: 200% 100%;
-		animation: shimmer 1.2s ease infinite;
-	}
-
-	.input-shell {
-		border-top: 1px solid rgba(0, 0, 0, 0.04);
-		border-radius: 12px;
-		display: grid;
-		gap: 12px;
-		padding: 10px 0 0;
-	}
-
-	.collapsed-row {
-		display: grid;
-		grid-template-columns: 1fr auto;
+	.suggestion-footer {
+		display: flex;
+		align-items: center;
 		gap: 10px;
-		align-items: center;
+		padding-top: 4px;
 	}
 
-	.collapsed-actions {
-		display: inline-flex;
-		gap: 6px;
-	}
-
-	.faux-input {
-		min-height: 42px;
-		display: flex;
-		align-items: center;
-		padding: 0 12px;
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.06);
-		box-shadow: var(--shadow-sm);
-		font-size: 13px;
-		font-weight: var(--weight-light);
-		color: var(--text4);
-		transition: all 0.2s var(--ease-spring);
-	}
-
-	textarea {
-		width: 100%;
-		min-height: 60px;
-		max-height: 120px;
-		resize: none;
-		border-radius: 12px;
-		border: 1px solid rgba(0, 0, 0, 0.06);
-		background: rgba(255, 255, 255, 0.75);
-		padding: 10px 12px;
-		font-size: 14px;
-		font-weight: var(--weight-light);
-		line-height: var(--leading-relaxed);
-	}
-
-	.input-shell.recording textarea {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-	}
-
-	.toolbar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.left {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.wave {
-		height: 22px;
-		display: flex;
-		gap: 3px;
-		align-items: end;
-	}
-
-	.wave span {
-		flex: 1;
-		height: var(--h);
-		min-height: 4px;
-		border-radius: 999px;
-		background: rgba(160, 113, 74, 0.75);
-		transition: height 90ms linear;
-		animation: fadeIn 0.16s var(--ease-spring);
-		animation-delay: var(--d);
-	}
-
-	.error {
-		margin: 4px 0 0;
+	.action-count {
+		font-family: var(--font-mono);
 		font-size: 11px;
-		color: var(--red);
+		color: var(--text3);
+		flex: 1;
+	}
+
+	.accept-all-pill {
+		padding: 5px 14px;
+		border-radius: 14px;
+		border: none;
+		background: var(--accent);
+		color: #fff;
+		font-size: 11px;
+		font-weight: 400;
+		cursor: pointer;
+		transition: transform 0.15s var(--ease-spring);
+	}
+
+	.accept-all-pill:active {
+		transform: scale(0.95);
 	}
 </style>
