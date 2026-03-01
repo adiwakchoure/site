@@ -2,9 +2,21 @@
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
-	import { RotateCw, X } from 'lucide-svelte';
-	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
-	import type { Loop, LoopEvent } from '$types/models';
+	import { RotateCw, X, Plus, Trash2, Pencil, Check, Calendar } from 'lucide-svelte';
+	import {
+		addUpdate,
+		closeLoop,
+		reopenLoop,
+		updateLoop,
+		putLoopPerson,
+		removeLoopPerson,
+		updateLoopPersonRole,
+		addLoopNote,
+		updateLoopNote,
+		deleteLoopNote
+	} from '$db/local';
+	import type { Loop, LoopEvent, LoopNote, LoopPerson, LoopPersonRole, Person } from '$types/models';
+	import { loopPeopleStore, peopleStore, loopNotesStore } from '$stores/app';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
 	import { showToast } from '$stores/toast';
@@ -23,6 +35,13 @@
 		createdAt: string;
 		status?: 'pending' | 'failed';
 	};
+
+	const priorities = ['P0', 'P1', 'P2'] as const;
+	const energies = ['active', 'waiting', 'someday'] as const;
+	const roles: LoopPersonRole[] = ['involved', 'waiting_on', 'delegated_to'];
+	const roleLabels: Record<LoopPersonRole, string> = { involved: 'involved', waiting_on: 'waiting on', delegated_to: 'delegated to' };
+	const roleColors: Record<LoopPersonRole, string> = { involved: '#6e63a0', waiting_on: '#a07c28', delegated_to: '#a0714a' };
+	const energyColors: Record<string, string> = { active: '#3d8a4a', waiting: '#a07c28', someday: '#8a857f' };
 
 	let {
 		loop,
@@ -47,6 +66,42 @@
 	let dragStartY = 0;
 	let dragStartAt = 0;
 	let dragPointerId: number | null = null;
+
+	// Inline title editing
+	let editingTitle = $state(false);
+	let titleDraft = $state('');
+
+	// Deadline editing
+	let editingDeadline = $state(false);
+
+	// People picker
+	let showPersonPicker = $state(false);
+	let personSearch = $state('');
+
+	// Notes
+	let newNoteText = $state('');
+	let editingNoteId = $state<string | null>(null);
+	let editingNoteText = $state('');
+
+	const allPeople = $derived(($peopleStore ?? []) as Person[]);
+	const allLoopPeople = $derived(($loopPeopleStore ?? []) as LoopPerson[]);
+	const allNotes = $derived(($loopNotesStore ?? []) as LoopNote[]);
+
+	const assignedLinks = $derived(loop ? allLoopPeople.filter((lp) => lp.loopId === loop!.id) : []);
+	const assignedPeople = $derived(
+		assignedLinks
+			.map((lp) => {
+				const person = allPeople.find((p) => p.id === lp.personId);
+				return person ? { ...person, role: lp.role } : null;
+			})
+			.filter(Boolean) as Array<Person & { role: LoopPersonRole }>
+	);
+	const unassignedPeople = $derived(
+		allPeople.filter(
+			(p) => !assignedLinks.some((lp) => lp.personId === p.id) && p.name.toLowerCase().includes(personSearch.toLowerCase())
+		)
+	);
+	const loopNotes = $derived(loop ? allNotes.filter((n) => n.loopId === loop!.id).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)) : []);
 
 	const isOverdue = $derived(loop ? Boolean(loop.deadline && loop.state === 'open' && new Date(loop.deadline).getTime() < Date.now()) : false);
 	const timelineRows = $derived.by(() => {
@@ -73,12 +128,20 @@
 			descriptionLoopId = null;
 			descriptionDraft = '';
 			descriptionDirty = false;
+			editingTitle = false;
+			showPersonPicker = false;
+			editingNoteId = null;
+			editingDeadline = false;
 			return;
 		}
 		if (descriptionLoopId !== loop.id) {
 			descriptionLoopId = loop.id;
 			descriptionDraft = loop.body ?? '';
 			descriptionDirty = false;
+			editingTitle = false;
+			showPersonPicker = false;
+			editingNoteId = null;
+			editingDeadline = false;
 		}
 	});
 
@@ -229,6 +292,156 @@
 		}
 	}
 
+	// Inline title
+	function startEditTitle() {
+		if (!loop) return;
+		titleDraft = loop.title;
+		editingTitle = true;
+	}
+
+	async function saveTitle() {
+		if (!loop || !titleDraft.trim()) {
+			editingTitle = false;
+			return;
+		}
+		const title = titleDraft.trim();
+		if (title === loop.title) {
+			editingTitle = false;
+			return;
+		}
+		try {
+			await updateLoop(loop.id, { title });
+			editingTitle = false;
+			showToast('Title updated');
+		} catch {
+			showToast('Could not update title');
+		}
+	}
+
+	// Cycle priority
+	async function cyclePriority() {
+		if (!loop) return;
+		const idx = priorities.indexOf(loop.priority);
+		const next = priorities[(idx + 1) % priorities.length];
+		try {
+			await updateLoop(loop.id, { priority: next });
+		} catch {
+			showToast('Could not update priority');
+		}
+	}
+
+	// Cycle energy
+	async function cycleEnergy() {
+		if (!loop) return;
+		const idx = energies.indexOf(loop.energy);
+		const next = energies[(idx + 1) % energies.length];
+		try {
+			await updateLoop(loop.id, { energy: next });
+		} catch {
+			showToast('Could not update energy');
+		}
+	}
+
+	// Deadline
+	async function setDeadline(event: Event) {
+		if (!loop) return;
+		const target = event.target as HTMLInputElement;
+		const value = target.value || null;
+		editingDeadline = false;
+		try {
+			await updateLoop(loop.id, { deadline: value });
+			showToast(value ? 'Deadline set' : 'Deadline removed');
+		} catch {
+			showToast('Could not update deadline');
+		}
+	}
+
+	async function clearDeadline() {
+		if (!loop) return;
+		editingDeadline = false;
+		try {
+			await updateLoop(loop.id, { deadline: null });
+			showToast('Deadline removed');
+		} catch {
+			showToast('Could not remove deadline');
+		}
+	}
+
+	// People
+	async function assignPerson(personId: string) {
+		if (!loop) return;
+		try {
+			await putLoopPerson(loop.id, personId, 'involved');
+			personSearch = '';
+			showPersonPicker = false;
+			showToast('Person assigned');
+		} catch {
+			showToast('Could not assign person');
+		}
+	}
+
+	async function unassignPerson(personId: string) {
+		if (!loop) return;
+		try {
+			await removeLoopPerson(loop.id, personId);
+			showToast('Person removed');
+		} catch {
+			showToast('Could not remove person');
+		}
+	}
+
+	async function cycleRole(personId: string, currentRole: LoopPersonRole) {
+		if (!loop) return;
+		const idx = roles.indexOf(currentRole);
+		const next = roles[(idx + 1) % roles.length];
+		try {
+			await updateLoopPersonRole(loop.id, personId, next);
+		} catch {
+			showToast('Could not update role');
+		}
+	}
+
+	// Notes
+	async function addNote() {
+		if (!loop || !newNoteText.trim()) return;
+		const body = newNoteText.trim();
+		newNoteText = '';
+		try {
+			await addLoopNote(loop.id, body);
+			showToast('Note added');
+		} catch {
+			showToast('Could not add note');
+		}
+	}
+
+	function startEditNote(note: LoopNote) {
+		editingNoteId = note.id;
+		editingNoteText = note.body;
+	}
+
+	async function saveNote() {
+		if (!editingNoteId || !editingNoteText.trim()) {
+			editingNoteId = null;
+			return;
+		}
+		try {
+			await updateLoopNote(editingNoteId, editingNoteText.trim());
+			editingNoteId = null;
+			showToast('Note updated');
+		} catch {
+			showToast('Could not update note');
+		}
+	}
+
+	async function removeNote(noteId: string) {
+		try {
+			await deleteLoopNote(noteId);
+			showToast('Note deleted');
+		} catch {
+			showToast('Could not delete note');
+		}
+	}
+
 	onDestroy(() => {
 		if (!browser) return;
 		window.removeEventListener('pointermove', onDragMove);
@@ -272,7 +485,16 @@
 			</div>
 			<header class="head">
 				<div class="head-top">
-					<Badge label={loop.priority} color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'} />
+					<Badge
+						label={loop.priority}
+						color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'}
+						onClick={cyclePriority}
+					/>
+					<Badge
+						label={loop.energy}
+						color={energyColors[loop.energy] ?? '#8a857f'}
+						onClick={cycleEnergy}
+					/>
 					{#if loop.state === 'closed'}
 						<Badge label="Closed" color="#3d8a4a" />
 					{/if}
@@ -287,7 +509,22 @@
 					{/if}
 					<IconBtn title="Close" size={30} onClick={onClose}><X size={14} /></IconBtn>
 				</div>
-				<h2 class="head-title">{loop.title}</h2>
+				{#if editingTitle}
+					<input
+						class="title-input"
+						bind:value={titleDraft}
+						onblur={saveTitle}
+						onkeydown={(event) => {
+							if (event.key === 'Enter') { event.preventDefault(); saveTitle(); }
+							if (event.key === 'Escape') { editingTitle = false; }
+						}}
+						autofocus
+					/>
+				{:else}
+					<button type="button" class="head-title-btn" ondblclick={startEditTitle} onclick={startEditTitle}>
+						<h2 class="head-title">{loop.title}</h2>
+					</button>
+				{/if}
 				<textarea
 					class="head-description"
 					bind:value={descriptionDraft}
@@ -310,8 +547,118 @@
 				<section class="context">
 					<div class="meta">
 						<p>Opened {new Date(loop.createdAt).toLocaleDateString()}</p>
-						{#if loop.deadline}<p>Deadline {new Date(loop.deadline).toLocaleDateString()}</p>{/if}
+						{#if editingDeadline}
+							<span class="deadline-edit">
+								<input
+									type="date"
+									class="date-input"
+									value={loop.deadline ?? ''}
+									onchange={setDeadline}
+									onblur={() => (editingDeadline = false)}
+									autofocus
+								/>
+								{#if loop.deadline}
+									<button type="button" class="clear-btn" onclick={clearDeadline}>clear</button>
+								{/if}
+							</span>
+						{:else}
+							<button type="button" class="meta-btn" onclick={() => (editingDeadline = true)}>
+								<Calendar size={10} />
+								{loop.deadline ? new Date(loop.deadline).toLocaleDateString() : 'Set deadline'}
+							</button>
+						{/if}
 						{#if loop.closedAt}<p>Closed {new Date(loop.closedAt).toLocaleDateString()} ({loop.closedReason})</p>{/if}
+					</div>
+				</section>
+
+				<section class="people-section">
+					<h4>People</h4>
+					{#if assignedPeople.length === 0 && !showPersonPicker}
+						<p class="empty">No one assigned</p>
+					{/if}
+					<div class="people-list">
+						{#each assignedPeople as person (person.id)}
+							<div class="person-chip">
+								<span class="person-name">{person.name}</span>
+								<button type="button" class="role-badge" style={`--rc:${roleColors[person.role]}`} onclick={() => cycleRole(person.id, person.role)}>
+									{roleLabels[person.role]}
+								</button>
+								<button type="button" class="person-remove" onclick={() => unassignPerson(person.id)} aria-label="Remove {person.name}">
+									<X size={10} />
+								</button>
+							</div>
+						{/each}
+					</div>
+					{#if showPersonPicker}
+						<div class="person-picker" transition:fly={{ y: 4, duration: 160 }}>
+							<input
+								class="picker-input"
+								bind:value={personSearch}
+								placeholder="Search people..."
+								onkeydown={(event) => {
+									if (event.key === 'Escape') { showPersonPicker = false; personSearch = ''; }
+								}}
+								autofocus
+							/>
+							<div class="picker-list">
+								{#each unassignedPeople as person (person.id)}
+									<button type="button" class="picker-item" onclick={() => assignPerson(person.id)}>
+										<span>{person.name}</span>
+										<span class="picker-rel">{person.rel || 'contact'}</span>
+									</button>
+								{:else}
+									<p class="picker-empty">No matches</p>
+								{/each}
+							</div>
+						</div>
+					{/if}
+					<button type="button" class="add-btn" onclick={() => { showPersonPicker = !showPersonPicker; personSearch = ''; }}>
+						<Plus size={12} />
+						{showPersonPicker ? 'Cancel' : 'Assign person'}
+					</button>
+				</section>
+
+				<section class="notes-section">
+					<h4>Notes</h4>
+					{#if loopNotes.length === 0}
+						<p class="empty">No notes yet</p>
+					{/if}
+					<div class="notes-list">
+						{#each loopNotes as note (note.id)}
+							<div class="note-item">
+								{#if editingNoteId === note.id}
+									<textarea
+										class="note-edit-input"
+										bind:value={editingNoteText}
+										onkeydown={(event) => {
+											if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); saveNote(); }
+											if (event.key === 'Escape') { editingNoteId = null; }
+										}}
+										autofocus
+									></textarea>
+									<div class="note-actions">
+										<button type="button" class="note-action-btn save" onclick={saveNote}><Check size={11} /> save</button>
+										<button type="button" class="note-action-btn" onclick={() => (editingNoteId = null)}>cancel</button>
+									</div>
+								{:else}
+									<p class="note-body">{note.body}</p>
+									<div class="note-meta">
+										<span class="info-tag" title={absoluteStamp(note.createdAt)}>{relativeAge(note.createdAt)}</span>
+										<button type="button" class="note-action-btn" onclick={() => startEditNote(note)}><Pencil size={10} /></button>
+										<button type="button" class="note-action-btn danger" onclick={() => removeNote(note.id)}><Trash2 size={10} /></button>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+					<div class="note-composer">
+						<input
+							bind:value={newNoteText}
+							placeholder="Add a note..."
+							onkeydown={(event) => {
+								if (event.key === 'Enter') { event.preventDefault(); addNote(); }
+							}}
+						/>
 					</div>
 				</section>
 
@@ -424,6 +771,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		flex-wrap: wrap;
 	}
 
 	.spacer {
@@ -454,6 +802,19 @@
 		color: var(--text2);
 	}
 
+	.head-title-btn {
+		border: 0;
+		background: transparent;
+		padding: 0;
+		cursor: text;
+		border-radius: 8px;
+		transition: background 0.15s var(--ease);
+	}
+
+	.head-title-btn:hover {
+		background: rgba(0, 0, 0, 0.03);
+	}
+
 	.head-title {
 		margin: 0;
 		width: min(100%, 420px);
@@ -473,6 +834,26 @@
 		overflow: hidden;
 	}
 
+	.title-input {
+		width: 100%;
+		border: 1px solid rgba(0, 0, 0, 0.08);
+		border-radius: 10px;
+		padding: 6px 10px;
+		font-family: var(--font-serif);
+		font-size: clamp(18px, 4.5vw, 24px);
+		font-weight: var(--weight-normal);
+		line-height: 1.2;
+		text-align: center;
+		background: rgba(255, 255, 255, 0.75);
+		transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+	}
+
+	.title-input:focus {
+		outline: none;
+		border-color: color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.05));
+		box-shadow: var(--ring-accent);
+	}
+
 	.body {
 		padding: 12px;
 		overflow: auto;
@@ -487,15 +868,11 @@
 		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 	}
 
-	.timeline-section {
-		display: grid;
-		gap: 0;
-	}
-
 	.meta {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
+		align-items: center;
 	}
 
 	.meta p {
@@ -507,6 +884,322 @@
 		border-radius: 999px;
 		background: rgba(255, 255, 255, 0.6);
 		border: 1px solid rgba(0, 0, 0, 0.04);
+	}
+
+	.meta-btn {
+		margin: 0;
+		font-size: 11px;
+		color: var(--text3);
+		font-family: var(--font-mono);
+		padding: 3px 7px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.6);
+		border: 1px solid rgba(0, 0, 0, 0.04);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		transition: all 0.15s var(--ease);
+	}
+
+	.meta-btn:hover {
+		background: rgba(255, 255, 255, 0.9);
+		border-color: rgba(0, 0, 0, 0.1);
+	}
+
+	.deadline-edit {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.date-input {
+		font-size: 11px;
+		font-family: var(--font-mono);
+		padding: 2px 6px;
+		border-radius: 8px;
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.08));
+		background: rgba(255, 255, 255, 0.85);
+		box-shadow: var(--ring-accent);
+	}
+
+	.date-input:focus {
+		outline: none;
+	}
+
+	.clear-btn {
+		font-size: 10px;
+		font-family: var(--font-mono);
+		color: var(--red);
+		background: rgba(192, 69, 58, 0.06);
+		border: 0;
+		border-radius: 6px;
+		padding: 2px 6px;
+		cursor: pointer;
+	}
+
+	/* People section */
+	.people-section {
+		display: grid;
+		gap: 6px;
+		padding-bottom: 2px;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+	}
+
+	.people-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.person-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 3px 4px 3px 8px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.7);
+		border: 1px solid rgba(0, 0, 0, 0.06);
+		animation: cardIn 0.2s var(--ease-spring);
+	}
+
+	.person-name {
+		font-size: 12px;
+		font-weight: var(--weight-medium);
+		color: var(--text2);
+	}
+
+	.role-badge {
+		font-size: 9px;
+		font-family: var(--font-mono);
+		padding: 1px 5px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--rc) 8%, transparent);
+		border: 1px solid color-mix(in srgb, var(--rc) 15%, transparent);
+		color: var(--rc);
+		cursor: pointer;
+		transition: all 0.12s var(--ease);
+	}
+
+	.role-badge:hover {
+		background: color-mix(in srgb, var(--rc) 14%, transparent);
+	}
+
+	.person-remove {
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		border: 0;
+		background: transparent;
+		color: var(--text4);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.12s var(--ease);
+	}
+
+	.person-remove:hover {
+		background: rgba(192, 69, 58, 0.1);
+		color: var(--red);
+	}
+
+	.person-picker {
+		display: grid;
+		gap: 4px;
+		padding: 6px;
+		border-radius: 10px;
+		background: rgba(255, 255, 255, 0.8);
+		border: 1px solid rgba(0, 0, 0, 0.06);
+		box-shadow: var(--shadow-md);
+	}
+
+	.picker-input {
+		width: 100%;
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		border-radius: 8px;
+		padding: 5px 8px;
+		font-size: 12px;
+		background: rgba(255, 255, 255, 0.9);
+	}
+
+	.picker-input:focus {
+		outline: none;
+		border-color: color-mix(in srgb, var(--accent) 35%, rgba(0, 0, 0, 0.05));
+		box-shadow: var(--ring-accent);
+	}
+
+	.picker-list {
+		max-height: 120px;
+		overflow-y: auto;
+		display: grid;
+		gap: 2px;
+	}
+
+	.picker-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 5px 8px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		cursor: pointer;
+		font-size: 12px;
+		color: var(--text);
+		transition: background 0.1s var(--ease);
+	}
+
+	.picker-item:hover {
+		background: rgba(0, 0, 0, 0.04);
+	}
+
+	.picker-rel {
+		font-size: 10px;
+		color: var(--text4);
+	}
+
+	.picker-empty {
+		margin: 0;
+		padding: 6px 8px;
+		font-size: 11px;
+		color: var(--text4);
+		font-style: italic;
+	}
+
+	.add-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 10px;
+		border-radius: 8px;
+		border: 1px dashed rgba(0, 0, 0, 0.1);
+		background: transparent;
+		font-size: 11px;
+		color: var(--text3);
+		cursor: pointer;
+		transition: all 0.15s var(--ease);
+		width: fit-content;
+	}
+
+	.add-btn:hover {
+		border-color: rgba(0, 0, 0, 0.2);
+		color: var(--text2);
+		background: rgba(255, 255, 255, 0.5);
+	}
+
+	/* Notes section */
+	.notes-section {
+		display: grid;
+		gap: 6px;
+		padding-bottom: 2px;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+	}
+
+	.notes-list {
+		display: grid;
+		gap: 6px;
+	}
+
+	.note-item {
+		padding: 6px 8px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.5);
+		border: 1px solid rgba(0, 0, 0, 0.04);
+	}
+
+	.note-body {
+		margin: 0 0 4px;
+		font-size: 13px;
+		line-height: var(--leading-normal);
+		color: var(--text2);
+		white-space: pre-wrap;
+	}
+
+	.note-meta {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.note-edit-input {
+		width: 100%;
+		min-height: 48px;
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.06));
+		border-radius: 8px;
+		padding: 6px 8px;
+		font-size: 13px;
+		line-height: var(--leading-normal);
+		background: rgba(255, 255, 255, 0.85);
+		resize: vertical;
+		font-family: inherit;
+	}
+
+	.note-edit-input:focus {
+		outline: none;
+		box-shadow: var(--ring-accent);
+	}
+
+	.note-actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 4px;
+	}
+
+	.note-action-btn {
+		border: 0;
+		background: transparent;
+		font-size: 10px;
+		font-family: var(--font-mono);
+		color: var(--text3);
+		cursor: pointer;
+		padding: 2px 4px;
+		border-radius: 4px;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		transition: all 0.12s var(--ease);
+	}
+
+	.note-action-btn:hover {
+		background: rgba(0, 0, 0, 0.04);
+		color: var(--text2);
+	}
+
+	.note-action-btn.save {
+		color: var(--green);
+	}
+
+	.note-action-btn.danger:hover {
+		color: var(--red);
+		background: rgba(192, 69, 58, 0.06);
+	}
+
+	.note-composer {
+		margin-top: 2px;
+	}
+
+	.note-composer input {
+		width: 100%;
+		height: 32px;
+		border-radius: 10px;
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		background: rgba(255, 255, 255, 0.75);
+		padding: 0 10px;
+		font-size: 12px;
+		transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+	}
+
+	.note-composer input:focus {
+		outline: none;
+		border-color: color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.05));
+		box-shadow: var(--ring-accent);
+	}
+
+	/* Timeline */
+	.timeline-section {
+		display: grid;
+		gap: 0;
 	}
 
 	h4 {

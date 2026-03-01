@@ -95,7 +95,7 @@ export async function createLoop(input: {
 	return loop;
 }
 
-export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
+export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'title' | 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();
@@ -284,6 +284,50 @@ export async function putLoopPerson(loopId: string, personId: string, role: Loop
 		data: { loopId, personId, role },
 		ts: nowIso()
 	});
+}
+
+export async function removeLoopPerson(loopId: string, personId: string) {
+	await db.loopPeople.where({ loopId, personId }).delete();
+	await queue({
+		table: 'loop_person',
+		op: 'delete',
+		id: `${loopId}:${personId}`,
+		ts: nowIso()
+	});
+}
+
+export async function updateLoopPersonRole(loopId: string, personId: string, role: LoopPersonRole) {
+	await db.loopPeople.put({ loopId, personId, role });
+	await queue({
+		table: 'loop_person',
+		op: 'put',
+		id: `${loopId}:${personId}`,
+		data: { loopId, personId, role },
+		ts: nowIso()
+	});
+}
+
+export async function updatePerson(personId: string, changes: Partial<Pick<Person, 'name' | 'rel'>>) {
+	const current = await db.people.get(personId);
+	if (!current) return null;
+	const next: Person = { ...current, ...changes };
+	await db.people.put(next);
+	await queue({ table: 'people', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: nowIso() });
+	return next;
+}
+
+export async function deletePerson(personId: string) {
+	await db.people.delete(personId);
+	await db.loopPeople.where('personId').equals(personId).delete();
+	await queue({ table: 'people', op: 'delete', id: personId, ts: nowIso() });
+}
+
+export async function deleteLoopNote(noteId: string) {
+	const current = await db.loopNotes.get(noteId);
+	if (!current) return;
+	await db.loopNotes.delete(noteId);
+	await queue({ table: 'loop_notes', op: 'delete', id: noteId, ts: nowIso() });
+	await touchLoop(current.loopId, nowIso());
 }
 
 export async function putDump(input: Omit<Dump, 'id' | 'createdAt' | 'processed'> & { id?: string; createdAt?: string; processed?: number }) {
