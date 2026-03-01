@@ -29,6 +29,7 @@
 		"@kinde-oss/kinde-auth-sveltekit": "^2.2.3",
 		"dexie": "^4.3.0",
 		"lucide-svelte": "^0.575.0",
+		"simple-icons": "^16.10.0",
 		"zod": "^4.3.6"
 	}
 }
