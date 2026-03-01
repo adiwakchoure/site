@@ -5,7 +5,6 @@
 	import { RotateCw, X } from 'lucide-svelte';
 	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
 	import type { Loop, LoopEvent } from '$types/models';
-	import ActionBtn from '$components/ActionBtn.svelte';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
 	import { showToast } from '$stores/toast';
@@ -364,20 +363,6 @@
 					</div>
 				</section>
 			</div>
-
-			<footer class="actions">
-				<div class="right" style="margin-left:auto;">
-					{#if loop.state === 'open'}
-						<ActionBtn title="Close loop" color="color-mix(in srgb, var(--red) 14%, #fff)" onClick={resolveLoop}>
-							<span class="close-label">Close loop</span>
-						</ActionBtn>
-					{:else}
-						<ActionBtn title="Reopen loop" color="rgba(255,255,255,0.7)" onClick={reopenCurrentLoop}>
-							<span style="color:var(--text2)">Reopen loop</span>
-						</ActionBtn>
-					{/if}
-				</div>
-			</footer>
 		</div>
 	</div>
 {/if}
@@ -721,30 +706,6 @@
 		margin: 6px 0 0;
 		font-size: 11px;
 		color: var(--text3);
-	}
-
-	.actions {
-		padding: 12px;
-		border-top: 1px solid rgba(0, 0, 0, 0.04);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.right {
-		display: inline-flex;
-		gap: 8px;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-	}
-
-	.close-label {
-		display: inline-block;
-		min-width: 168px;
-		text-align: center;
-		color: var(--red);
-		font-weight: var(--weight-medium);
 	}
 
 	.empty {

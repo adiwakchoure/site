@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { fly, fade } from 'svelte/transition';
+	import { fade } from 'svelte/transition';
 	import { AlertTriangle, BarChart3, Layers, Users } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
@@ -119,7 +119,7 @@
 
 	<section class="content">
 		{#key $page.url.pathname}
-			<div class="route-transition" in:fly={{ y: 6, duration: 180, delay: 60 }} out:fade={{ duration: 120 }}>
+			<div class="route-transition" in:fade={{ duration: 160, delay: 80 }} out:fade={{ duration: 100 }}>
 				{@render children()}
 			</div>
 		{/key}

@@ -132,9 +132,11 @@ select {
 	overflow: auto;
 	padding: 10px 10px 8px;
 	position: relative;
+	display: grid;
 }
 
 .route-transition {
+	grid-area: 1 / 1;
 	min-height: 100%;
 }
 
