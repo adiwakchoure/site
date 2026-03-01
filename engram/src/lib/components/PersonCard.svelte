@@ -55,9 +55,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		border-radius: 12px;
+		background: var(--surface-1);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-md);
 		padding: 12px;
 		box-shadow: var(--shadow-sm);
 		transition: all var(--dur-base) var(--ease-spring);
@@ -65,8 +65,8 @@
 	}
 
 	.card.hover {
-		background: rgba(255, 255, 255, 0.8);
-		border-color: rgba(0, 0, 0, 0.08);
+		background: var(--surface-2);
+		border-color: var(--border-strong);
 		box-shadow: var(--shadow-md);
 		transform: translateY(-1px);
 	}
@@ -101,7 +101,7 @@
 
 	.title span {
 		color: var(--text4);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: var(--weight-light);
 	}
 
@@ -118,7 +118,7 @@
 	}
 
 	.label {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text4);
 	}
 

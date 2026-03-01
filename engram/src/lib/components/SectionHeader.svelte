@@ -13,7 +13,8 @@
 <style>
 	h4 {
 		margin: 0 0 8px;
-		font-size: 10px;
+		font-size: var(--text-xs);
+		font-weight: var(--weight-normal);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps-wide);
 	}

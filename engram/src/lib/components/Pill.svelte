@@ -16,20 +16,20 @@
 	button {
 		border: 1px solid transparent;
 		background: transparent;
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		min-height: 40px;
 		padding: 8px 12px;
-		font-size: 12px;
-		font-weight: 300;
+		font-size: var(--text-sm);
+		font-weight: var(--weight-light);
 		color: var(--text3);
 		transition: all 0.2s var(--ease-spring);
 	}
 
 	button.active {
-		background: rgba(255, 255, 255, 0.7);
-		border-color: rgba(0, 0, 0, 0.08);
+		background: var(--surface-2);
+		border-color: var(--border-strong);
 		box-shadow: var(--shadow-sm);
-		font-weight: 400;
+		font-weight: var(--weight-normal);
 		color: var(--text);
 	}
 

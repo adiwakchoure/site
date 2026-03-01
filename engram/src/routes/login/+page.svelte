@@ -59,9 +59,9 @@
 	.login-card {
 		width: min(460px, 100%);
 		padding: 28px;
-		border: 1px solid var(--line);
+		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-lg);
-		background: var(--card);
+		background: var(--surface-2);
 		box-shadow: 0 12px 40px rgba(15, 11, 7, 0.06);
 		text-align: center;
 		display: grid;
@@ -76,14 +76,19 @@
 
 	h1 {
 		margin: 0;
-		font: 500 30px/1.05 var(--font-serif);
-		letter-spacing: -0.01em;
+		font-family: var(--font-serif);
+		font-size: clamp(28px, 4.8vw, 32px);
+		font-weight: var(--weight-normal);
+		line-height: 1.05;
+		letter-spacing: var(--tracking-tight);
 	}
 
 	p {
 		margin: 0;
 		color: var(--muted);
-		font: 400 14px/1.4 var(--font-sans);
+		font-size: var(--text-md);
+		font-weight: var(--weight-normal);
+		line-height: var(--leading-normal);
 	}
 
 	.actions {
@@ -97,16 +102,28 @@
 		align-items: center;
 		justify-content: center;
 		gap: 8px;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 		padding: 10px 14px;
-		font: 500 14px/1 var(--font-sans);
+		font-size: var(--text-md);
+		font-weight: var(--weight-medium);
+		line-height: 1;
 		text-decoration: none;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease),
+			transform var(--dur-fast) var(--ease);
 	}
 
 	.provider {
 		color: var(--ink);
-		border: 1px solid var(--line);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-3);
+	}
+
+	.provider:hover {
+		border-color: var(--border-strong);
 		background: #fff;
+		transform: translateY(-1px);
 	}
 
 	.brand {

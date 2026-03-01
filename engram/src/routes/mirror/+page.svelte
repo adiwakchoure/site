@@ -32,7 +32,6 @@
 		return buckets;
 	});
 
-	// 3A: Real weekly throughput — last 4 weeks
 	const weeklyThroughput = $derived.by(() => {
 		const now = Date.now();
 		const week = 7 * 24 * 60 * 60 * 1000;
@@ -77,7 +76,6 @@
 {#if loading}
 	<Skeleton lines={6} />
 {:else}
-<!-- 3B: Hero stat — open count prominent -->
 <section class="hero">
 	<article class="hero-card">
 		<h3>Open loops</h3>
@@ -110,7 +108,6 @@
 		</div>
 	</article>
 
-	<!-- 3A: Real weekly throughput bars -->
 	<article class="chart-card">
 		<SectionHeader label="Weekly velocity" />
 		<div class="throughput">
@@ -148,7 +145,6 @@
 {/if}
 
 <style>
-	/* 3B: Hero card */
 	.hero {
 		display: flex;
 		justify-content: center;
@@ -158,9 +154,9 @@
 	.hero-card {
 		flex: 1;
 		padding: 20px 16px;
-		border-radius: 16px;
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		background: rgba(255, 255, 255, 0.5);
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-1);
 		box-shadow: var(--shadow-md);
 		text-align: center;
 		animation: cardIn 0.24s var(--ease-spring);
@@ -168,7 +164,7 @@
 
 	.hero-card h3 {
 		margin: 0;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--text3);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps-wide);
@@ -183,7 +179,6 @@
 		line-height: 1;
 	}
 
-	/* Supporting stats row */
 	.supporting-stats {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -192,10 +187,10 @@
 	}
 
 	.oldest {
-		border-radius: 12px;
-		border: 1px solid rgba(0, 0, 0, 0.05);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-soft);
 		border-left: 3px solid var(--amber);
-		background: rgba(255, 255, 255, 0.5);
+		background: var(--surface-1);
 		box-shadow: var(--shadow-sm);
 		padding: 12px;
 		margin-bottom: 12px;
@@ -211,7 +206,7 @@
 	}
 
 	.oldest span {
-		font-size: 10.5px;
+		font-size: var(--text-xs);
 		color: var(--text3);
 		font-family: var(--font-mono);
 	}
@@ -225,9 +220,9 @@
 
 	.chart-card {
 		padding: 12px;
-		border-radius: 12px;
-		border: 1px solid rgba(0, 0, 0, 0.05);
-		background: rgba(255, 255, 255, 0.5);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-1);
 		box-shadow: var(--shadow-sm);
 	}
 
@@ -235,7 +230,6 @@
 		margin-bottom: 12px;
 	}
 
-	/* Age distribution bars */
 	.bars {
 		height: 100px;
 		display: grid;
@@ -261,12 +255,11 @@
 		top: 104%;
 		left: 50%;
 		transform: translateX(-50%);
-		font-size: 9px;
+		font-size: var(--text-xxs);
 		color: var(--text3);
 		font-family: var(--font-mono);
 	}
 
-	/* 3A: Weekly throughput bars */
 	.throughput {
 		height: 100px;
 		display: grid;
@@ -311,7 +304,7 @@
 	}
 
 	.week-label {
-		font-size: 9px;
+		font-size: var(--text-xxs);
 		color: var(--text4);
 		font-family: var(--font-mono);
 		text-align: center;
@@ -324,7 +317,7 @@
 		display: flex;
 		align-items: center;
 		gap: 3px;
-		font-size: 9px;
+		font-size: var(--text-xxs);
 		color: var(--text4);
 		font-family: var(--font-mono);
 	}
@@ -343,7 +336,6 @@
 		background: var(--green);
 	}
 
-	/* 3C: Contention — wider name column */
 	.resource-row {
 		display: grid;
 		grid-template-columns: minmax(92px, 140px) 1fr auto;
@@ -378,13 +370,13 @@
 
 	.resource-row small {
 		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--accent);
 	}
 
 	.empty-inline {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text3);
 	}
 

@@ -52,24 +52,24 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 10px;
-		border: 1px solid rgba(0, 0, 0, 0.06);
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-soft);
 		background: transparent;
 		color: var(--text4);
 		transition: all 0.15s var(--ease-spring);
 	}
 
 	.icon-btn.hover {
-		background: rgba(0, 0, 0, 0.04);
-		border-color: rgba(0, 0, 0, 0.08);
+		background: var(--surface-1);
+		border-color: var(--border-strong);
 		color: var(--text3);
 		transform: translateY(-0.5px);
 		box-shadow: var(--shadow-sm);
 	}
 
 	.icon-btn.press {
-		background: rgba(0, 0, 0, 0.04);
-		border-color: rgba(0, 0, 0, 0.08);
+		background: var(--surface-1);
+		border-color: var(--border-strong);
 		color: var(--text3);
 		transform: scale(0.93);
 		box-shadow: none;

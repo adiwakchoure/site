@@ -45,11 +45,11 @@
 		border: 0;
 		min-height: 40px;
 		padding: 8px 14px;
-		border-radius: 10px;
+		border-radius: var(--radius-sm);
 		background: var(--btn);
 		color: #fff;
-		font-size: 12.5px;
-		font-weight: 400;
+		font-size: var(--text-sm);
+		font-weight: var(--weight-normal);
 		box-shadow: 0 2px 8px color-mix(in srgb, var(--btn) 20%, transparent);
 		transition: all 0.2s var(--ease-spring);
 	}

@@ -27,7 +27,7 @@
 
 	const labelMap: Record<string, string> = {
 		open_loop: 'open loop',
-		close_loop: 'archive loop',
+		close_loop: 'close loop',
 		add_note: 'update',
 		update_loop: 'update loop',
 		create_person: 'person',
@@ -63,7 +63,7 @@
 	<div class="head">
 		<div class="head-left">
 			<span class="action-icon">
-				<svelte:component this={ActionIcon} size={13} />
+				<ActionIcon size={13} />
 			</span>
 			<Badge label={labelMap[item.action] ?? item.action.replace('_', ' ')} color={colorMap[item.action] ?? '#5a5651'} />
 		</div>
@@ -103,9 +103,9 @@
 
 <style>
 	.card {
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.05);
+		border-radius: var(--radius-md);
+		background: var(--surface-1);
+		border: 1px solid var(--border-soft);
 		box-shadow: var(--shadow-sm);
 		padding: 12px;
 		overflow: hidden;
@@ -139,7 +139,7 @@
 		width: 28px;
 		height: 28px;
 		border-radius: 50%;
-		border: 1px solid rgba(0, 0, 0, 0.06);
+		border: 1px solid var(--border-soft);
 		background: transparent;
 		display: inline-flex;
 		align-items: center;
@@ -167,7 +167,7 @@
 	.title {
 		margin: 8px 0 5px;
 		font-family: var(--font-serif);
-		font-size: 14px;
+		font-size: var(--text-md);
 		font-weight: var(--weight-normal);
 		line-height: var(--leading-tight);
 		letter-spacing: var(--tracking-tight);
@@ -176,7 +176,7 @@
 
 	.note {
 		margin: 8px 0 2px;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-style: italic;
 		color: var(--text2);
 		line-height: var(--leading-normal);
@@ -184,7 +184,7 @@
 
 	.body {
 		margin: 8px 0 2px;
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-weight: var(--weight-light);
 		line-height: var(--leading-normal);
 		color: var(--text2);

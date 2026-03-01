@@ -162,7 +162,7 @@
 	.card-shell {
 		position: relative;
 		margin-bottom: 8px;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 	}
 
 	.card {
@@ -173,9 +173,9 @@
 		gap: 10px;
 		align-items: start;
 		padding: 12px 14px;
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.05);
+		border-radius: var(--radius-md);
+		background: var(--surface-1);
+		border: 1px solid var(--border-soft);
 		box-shadow: var(--shadow-sm);
 		transition: all var(--dur-base) var(--ease-spring);
 		text-align: left;
@@ -221,7 +221,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 10px;
+		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--red) 16%, transparent);
 		color: var(--red);
 		opacity: 0;
@@ -243,7 +243,7 @@
 	.title {
 		margin: 0;
 		font-family: var(--font-serif);
-		font-size: 15px;
+		font-size: var(--text-lg);
 		font-weight: var(--weight-normal);
 		line-height: var(--leading-tight);
 		letter-spacing: var(--tracking-tight);
@@ -264,7 +264,7 @@
 	}
 
 	.age {
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-family: var(--font-mono);
 		color: var(--text3);
 	}

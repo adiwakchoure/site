@@ -35,8 +35,8 @@
 
 <style>
 	.placeholder {
-		font-size: 13px;
-		font-weight: 300;
+		font-size: var(--text-md);
+		font-weight: var(--weight-light);
 		color: var(--text4);
 		animation: fadeUp 0.4s var(--ease-spring);
 		white-space: nowrap;

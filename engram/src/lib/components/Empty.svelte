@@ -45,16 +45,16 @@
 
 	p {
 		margin: 0;
-		font-family: 'Instrument Serif', 'Times New Roman', serif;
-		font-size: 14px;
-		font-weight: 300;
+		font-family: var(--font-serif);
+		font-size: var(--text-md);
+		font-weight: var(--weight-light);
 		color: var(--text3);
 		text-align: center;
 	}
 
 	.hint {
 		font-family: var(--font-sans);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text4);
 		max-width: 240px;
 	}
@@ -62,10 +62,10 @@
 	.cta {
 		margin-top: 4px;
 		padding: 6px 16px;
-		border-radius: 12px;
-		border: 1px solid rgba(0, 0, 0, 0.08);
-		background: rgba(255, 255, 255, 0.6);
-		font-size: 12px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-strong);
+		background: var(--surface-2);
+		font-size: var(--text-sm);
 		color: var(--accent);
 		cursor: pointer;
 		transition: all 0.15s var(--ease-spring);

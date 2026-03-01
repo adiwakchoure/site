@@ -122,7 +122,7 @@
 
 	.detail {
 		display: grid;
-		gap: 12px;
+		gap: var(--space-3);
 		max-width: 920px;
 		margin: 0 auto;
 	}
@@ -130,12 +130,15 @@
 	.back {
 		width: fit-content;
 		border: 0;
-		background: transparent;
+		background: var(--surface-1);
 		color: var(--text2);
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 12px;
+		font-size: var(--text-sm);
+		border-radius: var(--radius-sm);
+		padding: 6px 10px;
+		border: 1px solid var(--border-soft);
 	}
 
 	h2 {
@@ -148,7 +151,7 @@
 
 	header p {
 		margin: 2px 0 0;
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text4);
 	}
 
@@ -161,7 +164,7 @@
 	.resolved {
 		display: grid;
 		gap: 8px;
-		opacity: 0.4;
+		opacity: 0.72;
 	}
 
 	.resolved-item {
@@ -189,7 +192,7 @@
 
 	.empty-inline {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text3);
 	}
 

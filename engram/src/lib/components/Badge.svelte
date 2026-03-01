@@ -25,12 +25,12 @@
 		justify-content: center;
 		gap: 3px;
 		padding: 2px 8px;
-		border-radius: 8px;
-		font-size: 10.5px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-xs);
 		font-weight: 400;
 		letter-spacing: 0.01em;
 		background: color-mix(in srgb, var(--bd) 6%, transparent);
-		border: 1px solid color-mix(in srgb, var(--bd) 4%, transparent);
+		border: 1px solid color-mix(in srgb, var(--bd) 10%, var(--border-soft));
 		color: var(--bd);
 		transition: all 0.15s var(--ease);
 	}

@@ -4,7 +4,7 @@
 	import { Clock } from 'lucide-svelte';
 	import LoopCard from '$components/LoopCard.svelte';
 	import Pill from '$components/Pill.svelte';
-	import TaskDetail from '$components/TaskDetail.svelte';
+	import LoopDetail from '$components/LoopDetail.svelte';
 	import Pulse from '$components/Pulse.svelte';
 	import Empty from '$components/Empty.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
@@ -16,7 +16,7 @@
 
 	const filters: Array<'open' | 'overdue' | 'closed' | 'all'> = ['open', 'overdue', 'closed', 'all'];
 
-	let selectedTaskId = $state<string | null>(null);
+	let selectedLoopId = $state<string | null>(null);
 	let listHost = $state<HTMLDivElement | null>(null);
 	let listHeight = $state(360);
 	let scrub = $state<{ date: Date; active: number; overdue: number } | null>(null);
@@ -68,8 +68,8 @@
 		});
 	});
 
-	const selectedTask = $derived(sorted.find((loop) => loop.id === selectedTaskId) ?? null);
-	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedTaskId));
+	const selectedLoop = $derived(sorted.find((loop) => loop.id === selectedLoopId) ?? null);
+	const selectedEvents = $derived((($eventsStore ?? []) as LoopEvent[]).filter((evt) => evt.loopId === selectedLoopId));
 	const openCount = $derived(loops.filter((loop) => loop.state === 'open').length);
 	const overdueCount = $derived(loops.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length);
 	const closedCount = $derived(loops.filter((loop) => loop.state === 'closed').length);
@@ -148,7 +148,7 @@
 							loop={loop}
 							ghost={Boolean(scrub && loop.closedAt && new Date(loop.closedAt).getTime() <= scrub.date.getTime())}
 							stagger={Math.min(index * 18, 180)}
-							onSelect={(id) => (selectedTaskId = id)}
+							onSelect={(id) => (selectedLoopId = id)}
 							onSwipeAction={onSwipeAction}
 						/>
 					{/each}
@@ -164,14 +164,14 @@
 	</section>
 </div>
 
-<TaskDetail task={selectedTask} events={selectedEvents} open={Boolean(selectedTask)} onClose={() => (selectedTaskId = null)} />
+<LoopDetail loop={selectedLoop} events={selectedEvents} open={Boolean(selectedLoop)} onClose={() => (selectedLoopId = null)} />
 {/if}
 
 <style>
 	.loops-page {
 		display: grid;
 		grid-template-rows: auto 1fr;
-		gap: 10px;
+		gap: var(--space-3);
 		min-height: 100%;
 	}
 
@@ -199,17 +199,17 @@
 
 	.sorts button {
 		border: 0;
-		background: rgba(255, 255, 255, 0.35);
-		border-radius: 6px;
+		background: var(--surface-1);
+		border-radius: var(--radius-sm);
 		padding: 4px 7px;
-		font-size: var(--text-xs);
+		font-size: var(--text-sm);
 		font-weight: var(--weight-light);
 		color: var(--text4);
 		transition: all 0.18s var(--ease-spring);
 	}
 
 	.sorts button.active {
-		background: rgba(255, 255, 255, 0.92);
+		background: var(--surface-3);
 		color: var(--text2);
 		font-weight: var(--weight-normal);
 		box-shadow: var(--shadow-sm);
@@ -217,7 +217,7 @@
 	}
 
 	.sorts button:hover {
-		background: rgba(255, 255, 255, 0.8);
+		background: var(--surface-2);
 		color: var(--text2);
 	}
 
@@ -226,7 +226,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 7px 10px;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 		background: rgba(110, 99, 160, 0.06);
 		border: 1px solid rgba(110, 99, 160, 0.12);
 		box-shadow: 0 1px 4px rgba(110, 99, 160, 0.06);
@@ -235,7 +235,7 @@
 
 	.travel-banner span,
 	.travel-banner strong {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--purple);
 	}

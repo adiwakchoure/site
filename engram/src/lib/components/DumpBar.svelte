@@ -537,15 +537,21 @@
 	/* --- Pill container --- */
 	.pill {
 		margin: 0 8px 6px;
-		border-radius: 20px;
-		background: rgba(255, 255, 255, 0.5);
-		border: 1px solid rgba(0, 0, 0, 0.06);
+		border-radius: var(--radius-xl);
+		background: var(--surface-1);
+		border: 1px solid var(--border-soft);
 		box-shadow: var(--shadow-md);
 		padding: 0 14px;
 		overflow: hidden;
 		transition:
 			min-height 0.3s var(--ease-spring),
 			border-color 0.2s var(--ease);
+	}
+
+	@supports (padding-bottom: env(safe-area-inset-bottom)) {
+		.pill {
+			margin-bottom: calc(6px + var(--mobile-control-lift));
+		}
 	}
 
 	.pill.voice {
@@ -619,7 +625,7 @@
 		resize: none;
 		border: none;
 		background: transparent;
-		font-size: 14px;
+		font-size: var(--text-md);
 		font-weight: var(--weight-light);
 		line-height: var(--leading-relaxed);
 		color: var(--text);
@@ -647,7 +653,7 @@
 		height: 40px;
 		border-radius: 50%;
 		border: none;
-		background: var(--surface);
+		background: var(--surface-2);
 		color: var(--text4);
 		display: inline-flex;
 		align-items: center;
@@ -687,18 +693,18 @@
 
 	.duration {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text3);
 	}
 
 	.done-pill {
 		min-height: 40px;
 		padding: 8px 16px;
-		border-radius: 14px;
+		border-radius: var(--radius-md);
 		border: none;
 		background: var(--accent);
 		color: #fff;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 400;
 		cursor: pointer;
 		transition: transform 0.15s var(--ease-spring);
@@ -720,7 +726,7 @@
 
 	.transcript {
 		font-family: var(--font-serif);
-		font-size: 15px;
+		font-size: var(--text-lg);
 		font-style: italic;
 		color: var(--text2);
 		line-height: var(--leading-normal);
@@ -740,7 +746,7 @@
 	}
 
 	.slow-text {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 300;
 		color: var(--text4);
 		animation: fadeIn 0.4s var(--ease);
@@ -756,7 +762,7 @@
 	}
 
 	.suggestion-transcript {
-		font-size: 13px;
+		font-size: var(--text-md);
 		font-style: italic;
 		color: var(--text3);
 		margin: 0;
@@ -776,7 +782,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 300;
 		color: var(--green);
 		justify-self: center;
@@ -793,7 +799,7 @@
 
 	.action-count {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		color: var(--text3);
 		flex: 1;
 	}
@@ -801,11 +807,11 @@
 	.accept-all-pill {
 		min-height: 40px;
 		padding: 8px 14px;
-		border-radius: 14px;
+		border-radius: var(--radius-md);
 		border: none;
 		background: var(--accent);
 		color: #fff;
-		font-size: 11px;
+		font-size: var(--text-sm);
 		font-weight: 400;
 		cursor: pointer;
 		transition: transform 0.15s var(--ease-spring);

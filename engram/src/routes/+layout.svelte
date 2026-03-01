@@ -148,7 +148,7 @@
 			{#if data.user?.email}
 				<p class="app-open-meta">{data.user.email}</p>
 			{/if}
-			<a class="sidebar-link" href="/api/auth/logout">
+			<a class="sidebar-link" href="/api/auth/logout" aria-label="Sign out of Engram">
 				<LogOut size={16} />
 				<span>Sign out</span>
 			</a>
@@ -161,9 +161,9 @@
 					{#if data.user?.email}
 						<span>{data.user.email}</span>
 					{/if}
-					<span>{openCount} open</span>
+					<span aria-label={`${openCount} open loops`}>{openCount} open</span>
 					{#if overdueCount > 0}
-						<span style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
+						<span aria-label={`${overdueCount} overdue loops`} style="display:inline-flex;align-items:center;gap:3px;color:var(--red);">
 							<AlertTriangle size={12} />
 							{overdueCount}
 						</span>
@@ -171,7 +171,7 @@
 					{#if $pendingSyncStore}
 						<span class="sr-only">{$syncState}</span>
 					{/if}
-					<a href="/api/auth/logout">Sign out</a>
+					<a class="app-link-btn" href="/api/auth/logout" aria-label="Sign out of Engram">Sign out</a>
 				</div>
 			</header>
 
