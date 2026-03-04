@@ -4,23 +4,27 @@ export type LoopPriority = 'P0' | 'P1' | 'P2';
 export type ClosedReason = 'done' | 'dropped' | 'delegated' | 'irrelevant';
 export type EventKind = 'created' | 'closed' | 'reopened' | 'updated' | 'noted' | 'deleted';
 export type SuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+export type TagValueKind = 'text' | 'number' | 'date' | 'json';
 
 export interface Loop {
 	id: string;
 	title: string;
-	body: string;
+	content: string | null;
+	openedAt: string;
+	closedAt: string | null;
+	updatedAt: string;
+}
+
+// Derived, UI-level shape computed from Loop + tags.
+export interface LoopView extends Loop {
 	state: LoopState;
 	closedReason: ClosedReason | null;
 	energy: LoopEnergy;
 	priority: LoopPriority;
 	deadline: string | null;
-	projectId: string | null;
+	project: string | null;
 	parentId: string | null;
-	tags: string;
-	createdAt: string;
-	closedAt: string | null;
-	archivedAt: string | null;
-	updatedAt: string;
+	people: string[];
 }
 
 export interface LoopEvent {
@@ -42,25 +46,26 @@ export interface LoopNote {
 	updatedAt: string;
 }
 
-export interface Person {
+export interface TagType {
 	id: string;
+	slug: string;
 	name: string;
-	rel: string;
+	valueKind: TagValueKind;
+	multi: number;
+	system: number;
 	createdAt: string;
 }
 
-export interface LoopPerson {
+export interface Tag {
+	id: string;
 	loopId: string;
-	personId: string;
-}
-
-export interface Project {
-	id: string;
-	name: string;
-	color: string;
-	emoji: string | null;
-	archived: number;
+	tagTypeId: string;
+	valueText: string | null;
+	valueNumber: number | null;
+	valueDate: string | null;
+	valueJson: string | null;
 	createdAt: string;
+	updatedAt: string;
 }
 
 export interface Dump {
@@ -82,29 +87,30 @@ export interface SuggestionRecord {
 	resolvedAt: string | null;
 }
 
-export type SuggestionAction = 'open_loop' | 'close_loop' | 'add_note' | 'update_loop' | 'create_person' | 'create_project';
+export type SuggestionAction = 'open_loop' | 'close_loop' | 'add_note' | 'update_loop' | 'tag_loop';
 
 export interface SuggestedAction {
 	suggestionId?: string;
 	action: SuggestionAction;
 	loopId?: string;
 	title?: string;
+	content?: string | null;
 	priority?: LoopPriority;
 	energy?: LoopEnergy;
 	deadline?: string | null;
 	project?: string | null;
-	people?: Array<{ name: string; rel?: string }>;
+	people?: string[];
+	parentId?: string | null;
 	tags?: string[];
 	reason?: ClosedReason;
 	text?: string;
 	changes?: Record<string, string | null>;
-	name?: string;
-	rel?: string;
-	color?: string;
+	tagTypeSlug?: string;
+	tagValue?: string | null;
 	confidence?: 'high' | 'medium' | 'low';
 }
 
-export type SyncTable = 'loops' | 'events' | 'people' | 'loop_person' | 'projects' | 'dumps' | 'loop_notes';
+export type SyncTable = 'loops' | 'events' | 'dumps' | 'loop_notes' | 'tag_types' | 'tags';
 export type SyncTableV2 = SyncTable | 'suggestions';
 
 export interface SyncOp {

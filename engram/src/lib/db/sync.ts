@@ -11,11 +11,10 @@ const TABLE_MAP = {
 	loops: db.loops,
 	events: db.events,
 	loop_notes: db.loopNotes,
-	people: db.people,
-	projects: db.projects,
+	tag_types: db.tagTypes,
+	tags: db.tags,
 	dumps: db.dumps,
-	suggestions: db.suggestions,
-	loop_person: db.loopPeople
+	suggestions: db.suggestions
 } as const;
 
 export async function syncNow() {
@@ -34,7 +33,7 @@ export async function syncNow() {
 	const payload = (await res.json()) as SyncResponse;
 	await db.transaction(
 		'rw',
-		[db.syncQueue, db.meta, db.loops, db.events, db.loopNotes, db.people, db.projects, db.dumps, db.suggestions, db.loopPeople],
+		[db.syncQueue, db.meta, db.loops, db.events, db.loopNotes, db.tagTypes, db.tags, db.dumps, db.suggestions],
 		async () => {
 			if (pending.length > 0) {
 				const seqs = pending.map((p) => p.seq).filter((v): v is number => typeof v === 'number');
@@ -45,12 +44,7 @@ export async function syncNow() {
 				const table = TABLE_MAP[change.table];
 				if (!table) continue;
 				if (change.op === 'delete') {
-					if (change.table === 'loop_person') {
-						const [loopId, personId] = change.id.split(':');
-						if (loopId && personId) await db.loopPeople.delete([loopId, personId]);
-					} else {
-						await table.delete(change.id);
-					}
+					await table.delete(change.id);
 				} else if (change.data) {
 					await table.put(change.data as never);
 				}

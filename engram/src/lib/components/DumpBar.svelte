@@ -345,9 +345,9 @@
 	async function handleQuickCreate(data: {
 		title: string;
 		priority: 'P0' | 'P1' | 'P2';
-		energy: 'active' | 'waiting';
-		people: Array<{ id: string; name: string }>;
-		project: { id: string; name: string } | null;
+		energy: 'active' | 'waiting' | 'someday';
+		people: string[];
+		project: string | null;
 		deadline: string | null;
 	}) {
 		const loop = await createLoop({
@@ -355,10 +355,10 @@
 			priority: data.priority,
 			energy: data.energy,
 			deadline: data.deadline,
-			projectId: data.project?.id ?? null
+			project: data.project ?? null
 		});
 		for (const person of data.people) {
-			await putLoopPerson(loop.id, person.id);
+			await putLoopPerson(loop.id, person);
 		}
 		haptic(30);
 		showToast('Loop created');
@@ -427,7 +427,6 @@
 				bind:value={text}
 				placeholder="What's on your mind..."
 				rows="3"
-				autofocus
 				onkeydown={(e) => {
 					if (e.key === 'Enter' && !e.shiftKey) {
 						e.preventDefault();

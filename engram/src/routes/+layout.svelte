@@ -56,26 +56,24 @@
 		if (typeof window !== 'undefined') {
 			(window as unknown as Record<string, unknown>).__seedDexie = async () => {
 				const { db } = await import('$db/schema');
-				const res = await fetch('/api/seed');
+				const res = await window.fetch('/api/seed');
 				const data = await res.json();
-				await db.transaction('rw', [db.loops, db.events, db.loopNotes, db.people, db.projects, db.loopPeople, db.dumps, db.suggestions, db.syncQueue], async () => {
+				await db.transaction('rw', [db.loops, db.events, db.loopNotes, db.tagTypes, db.tags, db.dumps, db.suggestions, db.syncQueue], async () => {
 					await db.loops.clear();
 					await db.events.clear();
 					await db.loopNotes.clear();
-					await db.people.clear();
-					await db.projects.clear();
-					await db.loopPeople.clear();
+					await db.tagTypes.clear();
+					await db.tags.clear();
 					await db.dumps.clear();
 					await db.suggestions.clear();
 					await db.syncQueue.clear();
-					await db.people.bulkPut(data.people);
-					await db.projects.bulkPut(data.projects);
+					await db.tagTypes.bulkPut(data.tagTypes);
 					await db.loops.bulkPut(data.loops);
-					await db.loopPeople.bulkPut(data.loopPeople);
+					await db.tags.bulkPut(data.tags);
 					await db.events.bulkPut(data.events);
 					await db.loopNotes.bulkPut(data.loopNotes);
 				});
-				console.log('Seeded: 3 people, 2 projects, 9 loops, 7 notes, 16 events');
+				console.log('Seeded loop-first demo data');
 				location.reload();
 			};
 		}

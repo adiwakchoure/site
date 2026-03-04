@@ -1,29 +1,28 @@
 <script lang="ts">
-	import { loopPeopleStore, loopsStore, peopleStore } from '$stores/app';
+	import { loopViewsStore } from '$stores/app';
 	import { ageInDays } from '$lib/utils';
 	import StatCard from '$components/StatCard.svelte';
 	import SectionHeader from '$components/SectionHeader.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
+	import type { LoopView } from '$types/models';
 
-	const loops = $derived($loopsStore ?? []);
-	const links = $derived($loopPeopleStore ?? []);
-	const people = $derived($peopleStore ?? []);
+	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
 	const closed = $derived(loops.filter((loop) => loop.state === 'closed'));
 	const keptRate = $derived(loops.length ? Math.round((closed.filter((l) => l.closedReason === 'done').length / loops.length) * 100) : 0);
 	const open = $derived(loops.filter((loop) => loop.state === 'open'));
 	const overdue = $derived(open.filter((loop) => loop.deadline && +new Date(loop.deadline) < Date.now()));
 	const avgLifetime = $derived(closed.length
 		? Math.round(
-				closed.reduce((sum, loop) => sum + (+new Date(loop.closedAt ?? loop.updatedAt) - +new Date(loop.createdAt)), 0) /
+				closed.reduce((sum, loop) => sum + (+new Date(loop.closedAt ?? loop.updatedAt) - +new Date(loop.openedAt)), 0) /
 					closed.length /
 					(1000 * 60 * 60 * 24)
 			)
 		: 0);
-	const oldestOpen = $derived([...open].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))[0] ?? null);
+	const oldestOpen = $derived([...open].sort((a, b) => +new Date(a.openedAt) - +new Date(b.openedAt))[0] ?? null);
 	const ageBuckets = $derived.by(() => {
 		const buckets = { lt7: 0, lt14: 0, lt30: 0, gt30: 0 };
 		for (const loop of open) {
-			const age = ageInDays(loop.createdAt);
+			const age = ageInDays(loop.openedAt);
 			if (age < 7) buckets.lt7 += 1;
 			else if (age < 14) buckets.lt14 += 1;
 			else if (age < 30) buckets.lt30 += 1;
@@ -40,7 +39,7 @@
 			const start = now - (i + 1) * week;
 			const end = now - i * week;
 			const weekOpened = loops.filter((l) => {
-				const t = +new Date(l.createdAt);
+				const t = +new Date(l.openedAt);
 				return t >= start && t < end;
 			}).length;
 			const weekClosed = closed.filter((l) => {
@@ -56,21 +55,18 @@
 
 	const contention = $derived.by(() => {
 		const counts = new Map<string, number>();
-		for (const link of links) {
-			const loop = loops.find((item) => item.id === link.loopId);
-			if (!loop || loop.state !== 'open') continue;
-			counts.set(link.personId, (counts.get(link.personId) ?? 0) + 1);
+		for (const loop of open) {
+			for (const person of loop.people) {
+				counts.set(person, (counts.get(person) ?? 0) + 1);
+			}
 		}
 		return [...counts.entries()]
-			.map(([personId, count]) => ({
-				person: people.find((entry) => entry.id === personId)?.name ?? 'unknown',
-				count
-			}))
+			.map(([person, count]) => ({ person, count }))
 			.sort((a, b) => b.count - a.count)
 			.slice(0, 6);
 	});
 
-	const loading = $derived($loopsStore === null);
+	const loading = $derived($loopViewsStore === null);
 </script>
 
 {#if loading}
@@ -93,7 +89,7 @@
 	<article class="oldest">
 		<SectionHeader label="Oldest open" color="var(--amber)" />
 		<strong>{oldestOpen.title}</strong>
-		<span>{ageInDays(oldestOpen.createdAt)}d</span>
+		<span>{ageInDays(oldestOpen.openedAt)}d</span>
 	</article>
 {/if}
 

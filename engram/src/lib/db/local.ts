@@ -3,15 +3,13 @@ import type {
 	ClosedReason,
 	Dump,
 	Loop,
-	LoopEnergy,
 	LoopEvent,
 	LoopNote,
-	LoopPriority,
-	Person,
-	Project,
 	SuggestedAction,
 	SuggestionRecord,
-	SyncOp
+	SyncOp,
+	Tag,
+	TagType
 } from '$types/models';
 import { uid } from '$lib/utils';
 import { syncNow } from '$db/sync';
@@ -52,49 +50,93 @@ async function touchLoop(loopId: string, at: string) {
 	await putLoop(next);
 }
 
-export async function createLoop(input: {
-	title: string;
-	body?: string;
-	priority?: LoopPriority;
-	energy?: LoopEnergy;
-	deadline?: string | null;
-	projectId?: string | null;
-	parentId?: string | null;
-	tags?: string[];
-	dumpId?: string | null;
-}) {
+async function putTagType(type: TagType) {
+	await db.tagTypes.put(type);
+	await queue({ table: 'tag_types', op: 'put', id: type.id, data: type as unknown as Record<string, unknown>, ts: type.createdAt });
+}
+
+async function putTag(tag: Tag) {
+	await db.tags.put(tag);
+	await queue({ table: 'tags', op: 'put', id: tag.id, data: tag as unknown as Record<string, unknown>, ts: tag.updatedAt });
+}
+
+export async function ensureTagType(slug: string, opts?: { name?: string; valueKind?: TagType['valueKind']; multi?: number; system?: number }) {
+	const found = await db.tagTypes.where('slug').equals(slug).first();
+	if (found) return found;
+	const now = nowIso();
+	const type: TagType = {
+		id: uid('tt'),
+		slug,
+		name: opts?.name ?? slug.replace(/_/g, ' '),
+		valueKind: opts?.valueKind ?? 'text',
+		multi: opts?.multi ?? 0,
+		system: opts?.system ?? 0,
+		createdAt: now
+	};
+	await putTagType(type);
+	return type;
+}
+
+export async function setLoopTag(loopId: string, slug: string, value: string | null, opts?: { valueKind?: TagType['valueKind']; multi?: number }) {
+	const type = await ensureTagType(slug, { valueKind: opts?.valueKind, multi: opts?.multi });
+	if (type.multi) {
+		const existing = await db.tags.where('loopId').equals(loopId).and((tag) => tag.tagTypeId === type.id && tag.valueText === value).first();
+		if (existing) return existing;
+	}
+	const existingSingle = await db.tags.where('loopId').equals(loopId).and((tag) => tag.tagTypeId === type.id).first();
+	const now = nowIso();
+	const tag: Tag = {
+		id: existingSingle?.id ?? uid('tag'),
+		loopId,
+		tagTypeId: type.id,
+		valueText: type.valueKind === 'text' ? value : null,
+		valueNumber: type.valueKind === 'number' && value ? Number(value) : null,
+		valueDate: type.valueKind === 'date' ? value : null,
+		valueJson: type.valueKind === 'json' ? value : null,
+		createdAt: existingSingle?.createdAt ?? now,
+		updatedAt: now
+	};
+	await putTag(tag);
+	return tag;
+}
+
+export async function clearLoopTag(loopId: string, slug: string) {
+	const type = await db.tagTypes.where('slug').equals(slug).first();
+	if (!type) return;
+	const tags = await db.tags.where('loopId').equals(loopId).and((tag) => tag.tagTypeId === type.id).toArray();
+	const now = nowIso();
+	for (const tag of tags) {
+		await db.tags.delete(tag.id);
+		await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
+	}
+}
+
+export async function createLoop(input: { title: string; content?: string | null; deadline?: string | null; project?: string | null; priority?: 'P0' | 'P1' | 'P2'; energy?: 'active' | 'waiting' | 'someday'; parentId?: string | null; tags?: string[]; dumpId?: string | null; }) {
 	const now = nowIso();
 	const loop: Loop = {
 		id: uid('loop'),
 		title: input.title,
-		body: input.body ?? '',
-		state: 'open',
-		closedReason: null,
-		energy: input.energy ?? 'active',
-		priority: input.priority ?? 'P1',
-		deadline: input.deadline ?? null,
-		projectId: input.projectId ?? null,
-		parentId: input.parentId ?? null,
-		tags: (input.tags ?? []).join(','),
-		createdAt: now,
+		content: input.content ?? null,
+		openedAt: now,
 		closedAt: null,
-		archivedAt: null,
 		updatedAt: now
 	};
 	await putLoop(loop);
+	await setLoopTag(loop.id, 'state', 'open');
+	await setLoopTag(loop.id, 'priority', input.priority ?? 'P1');
+	await setLoopTag(loop.id, 'energy', input.energy ?? 'active');
+	if (input.deadline) await setLoopTag(loop.id, 'deadline', input.deadline, { valueKind: 'date' });
+	if (input.project) await setLoopTag(loop.id, 'project', input.project);
+	if (input.parentId) await setLoopTag(loop.id, 'parent', input.parentId);
+	for (const tag of input.tags ?? []) {
+		await setLoopTag(loop.id, tag, 'true', { multi: 1 });
+	}
 	await putEvent({
 		id: uid('evt'),
 		loopId: loop.id,
 		kind: 'created',
 		body: null,
-		meta: JSON.stringify({
-			title: loop.title,
-			priority: loop.priority,
-			energy: loop.energy,
-			deadline: loop.deadline,
-			projectId: loop.projectId,
-			tags: loop.tags
-		}),
+		meta: JSON.stringify({ title: loop.title }),
 		dumpId: input.dumpId ?? null,
 		sequence: await nextSequence(loop.id),
 		createdAt: now
@@ -103,7 +145,7 @@ export async function createLoop(input: {
 	return loop;
 }
 
-export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'title' | 'body' | 'priority' | 'energy' | 'deadline' | 'projectId' | 'tags'>>) {
+export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'title' | 'content'>>) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();
@@ -127,19 +169,35 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'ti
 	return next;
 }
 
+export async function updateLoopTags(loopId: string, changes: { priority?: string | null; energy?: string | null; deadline?: string | null; project?: string | null; parent?: string | null }) {
+	if (changes.priority !== undefined) await setLoopTag(loopId, 'priority', changes.priority);
+	if (changes.energy !== undefined) await setLoopTag(loopId, 'energy', changes.energy);
+	if (changes.deadline !== undefined) {
+		if (changes.deadline) await setLoopTag(loopId, 'deadline', changes.deadline, { valueKind: 'date' });
+		else await clearLoopTag(loopId, 'deadline');
+	}
+	if (changes.project !== undefined) {
+		if (changes.project) await setLoopTag(loopId, 'project', changes.project);
+		else await clearLoopTag(loopId, 'project');
+	}
+	if (changes.parent !== undefined) {
+		if (changes.parent) await setLoopTag(loopId, 'parent', changes.parent);
+		else await clearLoopTag(loopId, 'parent');
+	}
+}
+
 export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: string | null = null) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();
 	const next: Loop = {
 		...current,
-		state: 'closed',
-		closedReason: reason,
 		closedAt: now,
-		archivedAt: now,
 		updatedAt: now
 	};
 	await putLoop(next);
+	await setLoopTag(loopId, 'state', 'closed');
+	await setLoopTag(loopId, 'closed_reason', reason);
 	await putEvent({
 		id: uid('evt'),
 		loopId,
@@ -160,13 +218,12 @@ export async function reopenLoop(loopId: string) {
 	const now = nowIso();
 	const next: Loop = {
 		...current,
-		state: 'open',
-		closedReason: null,
 		closedAt: null,
-		archivedAt: null,
 		updatedAt: now
 	};
 	await putLoop(next);
+	await setLoopTag(loopId, 'state', 'open');
+	await clearLoopTag(loopId, 'closed_reason');
 	await putEvent({
 		id: uid('evt'),
 		loopId,
@@ -249,199 +306,13 @@ export async function deleteLoop(loopId: string) {
 	syncAndRefresh();
 }
 
-export async function putPerson(input: Omit<Person, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) {
-	const person: Person = { id: input.id ?? uid('person'), createdAt: input.createdAt ?? nowIso(), name: input.name, rel: input.rel };
-	await db.people.put(person);
-	await queue({ table: 'people', op: 'put', id: person.id, data: person as unknown as Record<string, unknown>, ts: person.createdAt });
-	await putEvent({
-		id: uid('evt'),
-		loopId: null,
-		kind: 'updated',
-		body: `person created: ${person.name}`,
-		meta: JSON.stringify({ entity: 'person', personId: person.id }),
-		dumpId: null,
-		sequence: await nextSequence(null),
-		createdAt: nowIso()
-	});
-	syncAndRefresh();
-	return person;
-}
-
-export async function updatePerson(personId: string, changes: Partial<Pick<Person, 'name' | 'rel'>>) {
-	const current = await db.people.get(personId);
-	if (!current) return null;
-	const next: Person = {
-		...current,
-		...changes
-	};
-	await db.people.put(next);
-	await queue({ table: 'people', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: nowIso() });
-	syncAndRefresh();
-	return next;
-}
-
-const personArchivePrefix = '[archived] ';
-
-export function isArchivedPerson(person: Person) {
-	return person.rel.startsWith(personArchivePrefix);
-}
-
-export async function archivePerson(personId: string) {
-	const current = await db.people.get(personId);
-	if (!current) return null;
-	if (isArchivedPerson(current)) return current;
-	return updatePerson(personId, { rel: `${personArchivePrefix}${current.rel}` });
-}
-
-export async function unarchivePerson(personId: string) {
-	const current = await db.people.get(personId);
-	if (!current) return null;
-	if (!isArchivedPerson(current)) return current;
-	return updatePerson(personId, { rel: current.rel.replace(personArchivePrefix, '') });
-}
-
-export async function deletePerson(personId: string) {
-	const now = nowIso();
-	const links = await db.loopPeople.where('personId').equals(personId).toArray();
-	await db.transaction('rw', [db.people, db.loopPeople], async () => {
-		await db.people.delete(personId);
-		for (const link of links) {
-			await db.loopPeople.delete([link.loopId, link.personId]);
-		}
-	});
-	await queue({ table: 'people', op: 'delete', id: personId, ts: now });
-	for (const link of links) {
-		await queue({ table: 'loop_person', op: 'delete', id: `${link.loopId}:${link.personId}`, ts: now });
-	}
-	syncAndRefresh();
-}
-
-export async function reassignLoopsAndDeletePerson(personId: string, reassignToPersonId: string | null) {
-	if (reassignToPersonId === personId) return;
-	const now = nowIso();
-	const links = await db.loopPeople.where('personId').equals(personId).toArray();
-	if (links.length > 0 && !reassignToPersonId) {
-		throw new Error('reassign_required');
-	}
-	if (reassignToPersonId) {
-		const target = await db.people.get(reassignToPersonId);
-		if (!target) throw new Error('reassign_target_missing');
-	}
-	const createdLinks: Array<{ loopId: string; personId: string }> = [];
-	await db.transaction('rw', [db.people, db.loopPeople], async () => {
-		for (const link of links) {
-			if (reassignToPersonId) {
-				const existing = await db.loopPeople.get([link.loopId, reassignToPersonId]);
-				if (!existing) {
-					const nextLink = { loopId: link.loopId, personId: reassignToPersonId };
-					await db.loopPeople.put(nextLink);
-					createdLinks.push(nextLink);
-				}
-			}
-			await db.loopPeople.delete([link.loopId, link.personId]);
-		}
-		await db.people.delete(personId);
-	});
-	await queue({ table: 'people', op: 'delete', id: personId, ts: now });
-	for (const link of links) {
-		await queue({ table: 'loop_person', op: 'delete', id: `${link.loopId}:${link.personId}`, ts: now });
-	}
-	for (const link of createdLinks) {
-		await queue({
-			table: 'loop_person',
-			op: 'put',
-			id: `${link.loopId}:${link.personId}`,
-			data: link as unknown as Record<string, unknown>,
-			ts: now
-		});
-	}
-	syncAndRefresh();
-}
-
-export async function putProject(input: Omit<Project, 'id' | 'createdAt' | 'archived'> & { id?: string; createdAt?: string; archived?: number }) {
-	const project: Project = {
-		id: input.id ?? uid('project'),
-		name: input.name,
-		color: input.color,
-		emoji: input.emoji ?? null,
-		archived: input.archived ?? 0,
-		createdAt: input.createdAt ?? nowIso()
-	};
-	await db.projects.put(project);
-	await queue({ table: 'projects', op: 'put', id: project.id, data: project as unknown as Record<string, unknown>, ts: project.createdAt });
-	await putEvent({
-		id: uid('evt'),
-		loopId: null,
-		kind: 'updated',
-		body: `project created: ${project.name}`,
-		meta: JSON.stringify({ entity: 'project', projectId: project.id }),
-		dumpId: null,
-		sequence: await nextSequence(null),
-		createdAt: nowIso()
-	});
-	syncAndRefresh();
-	return project;
-}
-
-export async function updateProject(projectId: string, changes: Partial<Pick<Project, 'name' | 'color' | 'emoji' | 'archived'>>) {
-	const current = await db.projects.get(projectId);
-	if (!current) return null;
-	const next: Project = {
-		...current,
-		...changes
-	};
-	await db.projects.put(next);
-	await queue({ table: 'projects', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: nowIso() });
-	syncAndRefresh();
-	return next;
-}
-
-export async function archiveProject(projectId: string) {
-	return updateProject(projectId, { archived: 1 });
-}
-
-export async function unarchiveProject(projectId: string) {
-	return updateProject(projectId, { archived: 0 });
-}
-
-export async function deleteProject(projectId: string) {
-	const now = nowIso();
-	const loopsUsingProject = await db.loops.where('projectId').equals(projectId).toArray();
-	await db.transaction('rw', [db.projects, db.loops], async () => {
-		await db.projects.delete(projectId);
-		for (const loop of loopsUsingProject) {
-			const next: Loop = { ...loop, projectId: null, updatedAt: now };
-			await db.loops.put(next);
-		}
-	});
-	await queue({ table: 'projects', op: 'delete', id: projectId, ts: now });
-	for (const loop of loopsUsingProject) {
-		const next = { ...loop, projectId: null, updatedAt: now };
-		await queue({ table: 'loops', op: 'put', id: next.id, data: next as unknown as Record<string, unknown>, ts: now });
-	}
-	syncAndRefresh();
-}
-
-export async function putLoopPerson(loopId: string, personId: string) {
-	await db.loopPeople.put({ loopId, personId });
-	await queue({
-		table: 'loop_person',
-		op: 'put',
-		id: `${loopId}:${personId}`,
-		data: { loopId, personId },
-		ts: nowIso()
-	});
+export async function putLoopPerson(loopId: string, personName: string) {
+	await setLoopTag(loopId, 'person', personName, { multi: 1 });
 	syncAndRefresh();
 }
 
 export async function removeLoopPerson(loopId: string, personId: string) {
-	await db.loopPeople.delete([loopId, personId]);
-	await queue({
-		table: 'loop_person',
-		op: 'delete',
-		id: `${loopId}:${personId}`,
-		ts: nowIso()
-	});
+	await clearLoopTag(loopId, 'person');
 	syncAndRefresh();
 }
 

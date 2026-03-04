@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
 	import { ChevronRight } from 'lucide-svelte';
-	import type { Person } from '$types/models';
+	type PersonLike = { name: string; rel?: string };
 
 	let {
 		person,
@@ -9,7 +9,7 @@
 		overdueCount,
 		onSelect
 	}: {
-		person: Person;
+		person: PersonLike;
 		openCount: number;
 		overdueCount: number;
 		onSelect: () => void;

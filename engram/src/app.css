@@ -65,7 +65,10 @@
 	--space-3: 12px;
 	--space-4: 16px;
 	--space-5: 20px;
+	--safe-top: max(env(safe-area-inset-top), 0px);
 	--safe-bottom: max(env(safe-area-inset-bottom), 12px);
+	--safe-left: max(env(safe-area-inset-left), 0px);
+	--safe-right: max(env(safe-area-inset-right), 0px);
 	--mobile-control-lift: 8px;
 }
 
@@ -98,6 +101,8 @@ body {
 
 #svelte {
 	width: 100%;
+	min-height: 100vh;
+	min-height: 100svh;
 	min-height: 100dvh;
 }
 
@@ -111,11 +116,15 @@ select {
 .app-shell {
 	position: relative;
 	width: min(100%, var(--shell-mobile));
+	min-height: 100vh;
+	min-height: 100svh;
 	min-height: 100dvh;
 	margin: 0 auto;
 	display: flex;
 	flex-direction: column;
 	background: var(--bg);
+	padding-left: var(--safe-left);
+	padding-right: var(--safe-right);
 }
 
 .app-main {
@@ -131,7 +140,7 @@ select {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 6px 14px;
+	padding: calc(6px + var(--safe-top)) 14px 6px;
 	gap: 8px;
 	box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
@@ -187,6 +196,7 @@ select {
 	padding: var(--space-3) var(--space-3) var(--space-2);
 	position: relative;
 	display: grid;
+	overscroll-behavior-y: contain;
 }
 
 .route-transition {
@@ -197,6 +207,7 @@ select {
 .dump-slot {
 	flex-shrink: 0;
 	padding-bottom: calc(var(--safe-bottom) + var(--mobile-control-lift));
+	background: var(--bg);
 }
 
 .tab-bar {

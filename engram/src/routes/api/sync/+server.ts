@@ -1,11 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
-import { ensureD1Schema } from '$db/bootstrap';
+import { ensureD1Schema, ensureSystemTagTypes } from '$db/bootstrap';
 import { normalizeForDb, normalizeForClient, rowExists, normalizeForeignKeys } from '$db/d1';
 
 const changeSchema = z.object({
-	table: z.enum(['loops', 'events', 'loop_notes', 'people', 'projects', 'dumps', 'suggestions', 'loop_person']),
+	table: z.enum(['loops', 'events', 'loop_notes', 'tag_types', 'tags', 'dumps', 'suggestions']),
 	op: z.enum(['put', 'delete']),
 	id: z.string(),
 	data: z.record(z.string(), z.unknown()).optional(),
@@ -21,11 +21,10 @@ const tablePrimaryKey = {
 	loops: 'id',
 	events: 'id',
 	loop_notes: 'id',
-	people: 'id',
-	projects: 'id',
+	tag_types: 'id',
+	tags: 'id',
 	dumps: 'id',
-	suggestions: 'id',
-	loop_person: 'loop_id'
+	suggestions: 'id'
 } as const;
 
 export const POST: RequestHandler = async ({ locals, request, platform }) => {
@@ -35,6 +34,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 	const env = platform?.env;
 	if (!env?.DB) return json({ error: 'D1 binding missing' }, { status: 500 });
 	await ensureD1Schema(env as App.Platform['env'] | undefined);
+	await ensureSystemTagTypes(env as App.Platform['env'] | undefined, userId);
 
 	const parsed = payloadSchema.safeParse(await request.json());
 	if (!parsed.success) return json({ error: 'Invalid sync payload' }, { status: 400 });
@@ -44,15 +44,8 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 
 	for (const change of changes) {
 		if (change.op === 'delete') {
-			if (change.table === 'loop_person') {
-				const [loopId, personId] = change.id.split(':');
-				if (loopId && personId) {
-					await env.DB.prepare('DELETE FROM loop_person WHERE owner_id = ? AND loop_id = ? AND person_id = ?').bind(userId, loopId, personId).run();
-				}
-			} else {
-				const pk = tablePrimaryKey[change.table];
-				await env.DB.prepare(`DELETE FROM ${change.table} WHERE owner_id = ? AND ${pk} = ?`).bind(userId, change.id).run();
-			}
+			const pk = tablePrimaryKey[change.table];
+			await env.DB.prepare(`DELETE FROM ${change.table} WHERE owner_id = ? AND ${pk} = ?`).bind(userId, change.id).run();
 		} else if (change.data) {
 			const dbData = normalizeForDb(change.data);
 			dbData.owner_id = userId;
@@ -60,17 +53,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 			const keys = Object.keys(dbData);
 			const values = Object.values(dbData);
 			const placeholders = keys.map(() => '?').join(', ');
-			if (change.table === 'loop_person') {
-				const hasLoop = await rowExists(env as App.Platform['env'], 'loops', dbData.loop_id, userId);
-				const hasPerson = await rowExists(env as App.Platform['env'], 'people', dbData.person_id, userId);
-				if (!hasLoop || !hasPerson) continue;
-				const onConflict = keys
-					.filter((k) => !['owner_id', 'loop_id', 'person_id'].includes(k))
-					.map((k) => `${k}=excluded.${k}`)
-					.join(', ');
-				const sql = `INSERT INTO loop_person (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(owner_id, loop_id, person_id) DO UPDATE SET ${onConflict || 'person_id=excluded.person_id'}`;
-				await env.DB.prepare(sql).bind(...values).run();
-			} else if (change.table === 'loop_notes') {
+			if (change.table === 'loop_notes') {
 				const hasLoop = await rowExists(env as App.Platform['env'], 'loops', dbData.loop_id, userId);
 				if (!hasLoop) continue;
 				const onConflict = keys.filter((k) => k !== 'id').map((k) => `${k}=excluded.${k}`).join(', ');
@@ -112,19 +95,25 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 			ts: String((row as Record<string, unknown>).updated_at)
 		});
 	}
-	const people = await env.DB
-		.prepare('SELECT * FROM people WHERE owner_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT 100')
+	const tagTypes = await env.DB
+		.prepare('SELECT * FROM tag_types WHERE owner_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT 200')
 		.bind(userId, lastSync)
 		.all();
-	for (const row of people.results ?? []) {
-		outgoing.push({ table: 'people', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
+	for (const row of tagTypes.results ?? []) {
+		outgoing.push({ table: 'tag_types', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
 	}
-	const projects = await env.DB
-		.prepare('SELECT * FROM projects WHERE owner_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT 100')
+	const tags = await env.DB
+		.prepare('SELECT * FROM tags WHERE owner_id = ? AND updated_at > ? ORDER BY updated_at ASC LIMIT 400')
 		.bind(userId, lastSync)
 		.all();
-	for (const row of projects.results ?? []) {
-		outgoing.push({ table: 'projects', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
+	for (const row of tags.results ?? []) {
+		outgoing.push({
+			table: 'tags',
+			op: 'put',
+			id: String((row as Record<string, unknown>).id),
+			data: normalizeForClient(row as Record<string, unknown>),
+			ts: String((row as Record<string, unknown>).updated_at)
+		});
 	}
 	const dumps = await env.DB
 		.prepare('SELECT * FROM dumps WHERE owner_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT 100')
@@ -146,21 +135,5 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 			ts: String((row as Record<string, unknown>).created_at)
 		});
 	}
-	const loopPeople = await env.DB.prepare(
-		'SELECT lp.owner_id, lp.loop_id, lp.person_id FROM loop_person lp JOIN loops l ON l.id = lp.loop_id WHERE lp.owner_id = ? AND l.owner_id = ? AND l.updated_at > ? LIMIT 200'
-	)
-		.bind(userId, userId, lastSync)
-		.all();
-	for (const row of loopPeople.results ?? []) {
-		const rec = row as Record<string, unknown>;
-		outgoing.push({
-			table: 'loop_person',
-			op: 'put',
-			id: `${String(rec.loop_id)}:${String(rec.person_id)}`,
-			data: normalizeForClient(rec),
-			ts: now
-		});
-	}
-
 	return json({ serverTime: now, changes: outgoing });
 };

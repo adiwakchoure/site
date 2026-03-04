@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { fly, fade, scale } from 'svelte/transition';
-	import { Check, X, CircleCheck, ArrowUpRight, Plus, Pencil, UserPlus, FolderPlus } from 'lucide-svelte';
+	import { fly } from 'svelte/transition';
+	import { Check, X, CircleCheck, ArrowUpRight, Plus, Pencil, Tag } from 'lucide-svelte';
 	import type { SuggestedAction } from '$types/models';
 	import Badge from '$components/Badge.svelte';
 
@@ -21,8 +21,7 @@
 		open_loop: ArrowUpRight,
 		add_note: Plus,
 		update_loop: Pencil,
-		create_person: UserPlus,
-		create_project: FolderPlus
+		tag_loop: Tag
 	};
 
 	const labelMap: Record<string, string> = {
@@ -30,8 +29,7 @@
 		close_loop: 'close loop',
 		add_note: 'update',
 		update_loop: 'update loop',
-		create_person: 'person',
-		create_project: 'project'
+		tag_loop: 'tag'
 	};
 
 	const colorMap: Record<string, string> = {
@@ -39,8 +37,7 @@
 		close_loop: '#3d8a4a',
 		add_note: '#5a5651',
 		update_loop: '#6e63a0',
-		create_person: '#6e63a0',
-		create_project: '#a0714a'
+		tag_loop: '#5a5651'
 	};
 
 	function handleAccept() {
@@ -82,13 +79,13 @@
 	{:else if item.action === 'add_note'}
 		<p class="note">{item.text}</p>
 	{:else}
-		<p class="body">{item.title ?? item.name ?? 'Untitled suggestion'}</p>
+		<p class="body">{item.title ?? item.tagTypeSlug ?? 'Untitled suggestion'}</p>
 	{/if}
 
 	{#if (item.people && item.people.length > 0) || item.project || item.priority}
 		<div class="tags">
 			{#each item.people ?? [] as person}
-				<Badge label={person.name} color="#6e63a0" />
+				<Badge label={person} color="#6e63a0" />
 			{/each}
 			{#if item.project}<Badge label={item.project} color="#a0714a" />{/if}
 			{#if item.priority}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
 	import { Check, RotateCcw } from 'lucide-svelte';
-	import type { Loop } from '$types/models';
+	import type { LoopView } from '$types/models';
 	import { ageInDays, isOverdue } from '$lib/utils';
 	import Badge from '$components/Badge.svelte';
 
@@ -12,7 +12,7 @@
 		onSwipeAction = undefined,
 		stagger = 0
 	}: {
-		loop: Loop;
+		loop: LoopView;
 		ghost?: boolean;
 		onSelect: (loopId: string) => void;
 		onSwipeAction?: ((loopId: string, action: 'close' | 'reopen') => void) | undefined;
@@ -153,7 +153,7 @@
 			{/if}
 		</div>
 		{#if !ghost}
-			<div class="age" class:overdue-age={overdue}>{ageInDays(loop.createdAt)}d</div>
+			<div class="age" class:overdue-age={overdue}>{ageInDays(loop.openedAt)}d</div>
 		{/if}
 	</button>
 </div>

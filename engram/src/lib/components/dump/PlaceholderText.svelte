@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { loopsStore } from '$stores/app';
+	import { loopViewsStore } from '$stores/app';
 	import { isOverdue } from '$lib/utils';
 
 	const staticPrompts = [
@@ -13,7 +13,7 @@
 	let currentIndex = $state(0);
 
 	let prompts = $derived.by(() => {
-		const loops = $loopsStore ?? [];
+		const loops = $loopViewsStore ?? [];
 		const overdueCount = loops.filter(
 			(l) => l.state === 'open' && isOverdue(l.deadline, l.closedAt)
 		).length;

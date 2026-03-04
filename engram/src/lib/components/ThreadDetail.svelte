@@ -4,7 +4,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { RotateCw, X } from 'lucide-svelte';
 	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
-	import type { Loop, LoopEvent } from '$types/models';
+	import type { LoopEvent, LoopView } from '$types/models';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
 	import { showToast } from '$stores/toast';
@@ -30,7 +30,7 @@
 		open = false,
 		onClose
 	}: {
-		loop: Loop | null;
+		loop: LoopView | null;
 		events: LoopEvent[];
 		open: boolean;
 		onClose: () => void;
@@ -77,7 +77,7 @@
 		}
 		if (descriptionLoopId !== loop.id) {
 			descriptionLoopId = loop.id;
-			descriptionDraft = loop.body ?? '';
+			descriptionDraft = loop.content ?? '';
 			descriptionDirty = false;
 		}
 	});
@@ -201,7 +201,7 @@
 		if (!loop || !descriptionDirty) return;
 		const body = descriptionDraft.trim();
 		try {
-			await updateLoop(loop.id, { body });
+			await updateLoop(loop.id, { content: body });
 			descriptionDirty = false;
 			showToast('Description saved');
 		} catch {
@@ -321,7 +321,7 @@
 			<div class="body">
 				<section class="context">
 					<div class="meta">
-						<p>Opened {new Date(loop.createdAt).toLocaleDateString()}</p>
+						<p>Opened {new Date(loop.openedAt).toLocaleDateString()}</p>
 						{#if loop.deadline}<p>Deadline {new Date(loop.deadline).toLocaleDateString()}</p>{/if}
 						{#if loop.closedAt}<p>Closed {new Date(loop.closedAt).toLocaleDateString()} ({loop.closedReason})</p>{/if}
 					</div>

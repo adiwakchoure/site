@@ -28,13 +28,12 @@ export async function normalizeForeignKeys(
 	if (table === 'suggestions') {
 		if (typeof data.dump_id === 'string' && !(await rowExists(env, 'dumps', data.dump_id, ownerId))) data.dump_id = null;
 	}
-	if (table === 'loops') {
-		if (typeof data.project_id === 'string' && !(await rowExists(env, 'projects', data.project_id, ownerId)))
-			data.project_id = null;
-		if (typeof data.parent_id === 'string' && !(await rowExists(env, 'loops', data.parent_id, ownerId)))
-			data.parent_id = null;
-	}
 	if (table === 'loop_notes') {
 		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id, ownerId))) data.loop_id = null;
+	}
+	if (table === 'tags') {
+		if (typeof data.loop_id === 'string' && !(await rowExists(env, 'loops', data.loop_id, ownerId))) data.loop_id = null;
+		if (typeof data.tag_type_id === 'string' && !(await rowExists(env, 'tag_types', data.tag_type_id, ownerId)))
+			data.tag_type_id = null;
 	}
 }

@@ -9,10 +9,10 @@
 	import Empty from '$components/Empty.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
 	import { closeLoop, reopenLoop } from '$db/local';
-	import { activeFilter, eventsStore, loopSort, loopsStore } from '$stores/app';
+	import { activeFilter, eventsStore, loopSort, loopViewsStore } from '$stores/app';
 	import { showToast } from '$stores/toast';
 	import { isOverdue } from '$lib/utils';
-	import type { Loop, LoopEvent } from '$types/models';
+	import type { LoopEvent, LoopView } from '$types/models';
 
 	const filters: Array<'open' | 'overdue' | 'closed' | 'all'> = ['open', 'overdue', 'closed', 'all'];
 
@@ -32,14 +32,14 @@
 		}
 	});
 
-	const loops = $derived(($loopsStore ?? []) as Loop[]);
+	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
 
 	const sorted = $derived.by(() => {
 		const at = scrub?.date?.getTime() ?? null;
 		let base = [...loops];
 		if (at !== null) {
 			base = base
-				.filter((loop) => new Date(loop.createdAt).getTime() <= at)
+				.filter((loop) => new Date(loop.openedAt).getTime() <= at)
 				.filter((loop) => {
 					if ($activeFilter === 'all') return true;
 					const closedAt = loop.closedAt ? new Date(loop.closedAt).getTime() : Number.POSITIVE_INFINITY;
@@ -97,7 +97,7 @@
 		}
 	}
 
-	const loading = $derived($loopsStore === null);
+	const loading = $derived($loopViewsStore === null);
 </script>
 
 {#if loading}

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { Loop } from '$types/models';
+	import type { LoopView } from '$types/models';
 
 	let {
 		loops,
 		height = 300,
 		onScrub
 	}: {
-		loops: Loop[];
+		loops: LoopView[];
 		height?: number;
 		onScrub: (value: { date: Date; active: number; overdue: number } | null) => void;
 	} = $props();
@@ -18,21 +18,21 @@
 	const innerWidth = 38;
 
 	const series = $derived.by(() => {
-		const dates = [...new Set(loops.map((loop) => new Date(loop.createdAt).toISOString()))]
+		const dates = [...new Set(loops.map((loop) => new Date(loop.openedAt).toISOString()))]
 			.sort((a, b) => +new Date(a) - +new Date(b))
 			.map((iso) => new Date(iso));
 		const base = dates.length > 0 ? dates : [new Date()];
 		return base.map((date) => {
 			const at = +date;
 			const active = loops.filter((loop) => {
-				const created = new Date(loop.createdAt).getTime();
+				const created = new Date(loop.openedAt).getTime();
 				const closed = loop.closedAt ? new Date(loop.closedAt).getTime() : Number.POSITIVE_INFINITY;
 				return created <= at && closed > at;
 			}).length;
 			const overdue = loops.filter((loop) => {
 				if (!loop.deadline) return false;
 				const deadline = new Date(loop.deadline).getTime();
-				const created = new Date(loop.createdAt).getTime();
+				const created = new Date(loop.openedAt).getTime();
 				const closed = loop.closedAt ? new Date(loop.closedAt).getTime() : Number.POSITIVE_INFINITY;
 				return created <= at && closed > at && deadline < at;
 			}).length;

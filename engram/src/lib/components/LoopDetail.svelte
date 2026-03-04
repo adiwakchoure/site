@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ThreadDetail from '$components/ThreadDetail.svelte';
-	import type { Loop, LoopEvent } from '$types/models';
+	import type { LoopEvent, LoopView } from '$types/models';
 
 	let {
 		loop,
@@ -8,7 +8,7 @@
 		open = false,
 		onClose
 	}: {
-		loop: Loop | null;
+		loop: LoopView | null;
 		events: LoopEvent[];
 		open: boolean;
 		onClose: () => void;
