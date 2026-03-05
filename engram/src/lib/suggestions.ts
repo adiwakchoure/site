@@ -1,14 +1,8 @@
-import { addUpdate, closeLoop, createLoop, setLoopTag, setSuggestionStatus, updateLoop, updateLoopTags } from '$db/local';
+import { addUpdate, applyLoopTagPatches, closeLoop, createLoop, setSuggestionStatus, updateLoop, updateLoopTags } from '$db/local';
 import { get } from 'svelte/store';
 import { loopsStore, tagTypesStore, tagsStore, deriveLoopViews } from '$stores/app';
-import type { SuggestedAction } from '$types/models';
-
-async function ensureAndLinkPeople(loopId: string, people?: SuggestedAction['people']) {
-	for (const name of people ?? []) {
-		if (!name) continue;
-		await setLoopTag(loopId, 'person', name, { multi: 1 });
-	}
-}
+import type { SuggestionApplyResult, SuggestionMutationPlan, SuggestedAction } from '$types/models';
+import { isNoopMutationPlan, mapSuggestionToMutationPlan } from '$lib/suggestions/mutation-plan';
 
 async function resolveLoopId(item: SuggestedAction): Promise<string | null> {
 	if (item.loopId) return item.loopId;
@@ -24,114 +18,91 @@ async function resolveLoopId(item: SuggestedAction): Promise<string | null> {
 	return includes?.id ?? null;
 }
 
-export async function applySuggestion(item: SuggestedAction, dumpId: string | null = null) {
-	const markAccepted = async () => {
-		if (item.suggestionId) {
-			await setSuggestionStatus(item.suggestionId, 'accepted');
-		}
-	};
+async function resolvePlanLoopId(plan: SuggestionMutationPlan): Promise<string | null> {
+	if (plan.loopId) return plan.loopId;
+	if (!plan.loopTitleHint) return null;
+	return resolveLoopId({ action: 'close_loop', title: plan.loopTitleHint });
+}
 
-	if (item.action === 'open_loop' && item.title) {
+async function applyMutationPlan(plan: SuggestionMutationPlan, dumpId: string | null): Promise<SuggestionApplyResult> {
+	if (isNoopMutationPlan(plan)) {
+		return { applied: false, reason: 'no meaningful changes to apply' };
+	}
+	if (plan.kind === 'create_loop') {
+		const createTitle = plan.title?.trim();
+		if (!createTitle) return { applied: false, reason: 'no meaningful changes to apply' };
 		const loop = await createLoop({
-			title: item.title,
-			content: item.content ?? null,
-			priority: item.priority ?? 'P1',
-			deadline: item.deadline ?? null,
-			project: item.project ?? null,
-			tags: item.tags ?? [],
+			title: createTitle,
+			content: plan.content ?? null,
+			priority: plan.changes?.priority ?? 'P1',
+			deadline: plan.changes?.deadline ?? null,
+			project: plan.changes?.project ?? null,
+			tags: [],
 			dumpId
 		});
-		await ensureAndLinkPeople(loop.id, item.people);
-		await markAccepted();
-		return;
+		await applyLoopTagPatches(loop.id, plan.tags ?? []);
+		return { applied: true, loopId: loop.id };
 	}
 
-	if (item.action === 'close_loop' && item.loopId) {
-		await ensureAndLinkPeople(item.loopId, item.people);
-		await closeLoop(item.loopId, dumpId);
-		await markAccepted();
-		return;
+	const loopId = await resolvePlanLoopId(plan);
+	if (!loopId) return { applied: false, reason: 'could not resolve target loop' };
+
+	if (plan.kind === 'close_loop') {
+		const closed = await closeLoop(loopId, dumpId);
+		if (!closed) return { applied: false, reason: 'target loop not found' };
+		await applyLoopTagPatches(loopId, plan.tags ?? []);
+		return { applied: true, loopId };
 	}
 
-	if (item.action === 'close_loop' && !item.loopId) {
-		const resolved = await resolveLoopId(item);
-		if (!resolved) return;
-		await ensureAndLinkPeople(resolved, item.people);
-		await closeLoop(resolved, dumpId);
-		await markAccepted();
-		return;
+	if (plan.kind === 'add_note') {
+		if (!plan.noteText?.trim()) return { applied: false, reason: 'missing note text' };
+		await addUpdate(loopId, plan.noteText.trim(), dumpId);
+		await applyLoopTagPatches(loopId, plan.tags ?? []);
+		return { applied: true, loopId };
 	}
 
-	if (item.action === 'add_note' && item.loopId && item.text) {
-		await addUpdate(item.loopId, item.text, dumpId);
-		await ensureAndLinkPeople(item.loopId, item.people);
-		await markAccepted();
-		return;
-	}
-
-	if (item.action === 'add_note' && !item.loopId && item.text) {
-		const resolved = await resolveLoopId(item);
-		if (!resolved) return;
-		await addUpdate(resolved, item.text, dumpId);
-		await ensureAndLinkPeople(resolved, item.people);
-		await markAccepted();
-		return;
-	}
-
-	if (item.action === 'update_loop' && item.loopId) {
-		const changes = item.changes ?? {};
-		if (typeof changes.title === 'string') {
-			await updateLoop(item.loopId, { title: changes.title });
+	if (plan.kind === 'update_loop') {
+		const changes = plan.changes ?? {};
+		let mutated = false;
+		if (typeof changes.title === 'string' && changes.title.trim()) {
+			await updateLoop(loopId, { title: changes.title.trim() });
+			mutated = true;
 		}
 		if (typeof changes.content === 'string') {
-			await updateLoop(item.loopId, { content: changes.content });
+			await updateLoop(loopId, { content: changes.content.trim() });
+			mutated = true;
 		}
-		await updateLoopTags(item.loopId, {
-			priority: (changes.priority as string | null | undefined) ?? item.priority ?? undefined,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined
-		});
-		if (item.tagTypeSlug) {
-			await setLoopTag(item.loopId, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });
+		const tagChanges = {
+			priority: changes.priority ?? undefined,
+			deadline: changes.deadline ?? undefined,
+			project: changes.project ?? undefined
+		};
+		if (tagChanges.priority !== undefined || tagChanges.deadline !== undefined || tagChanges.project !== undefined) {
+			await updateLoopTags(loopId, tagChanges);
+			mutated = true;
 		}
-		await ensureAndLinkPeople(item.loopId, item.people);
-		await markAccepted();
-		return;
+		if (plan.tags && plan.tags.length > 0) {
+			await applyLoopTagPatches(loopId, plan.tags);
+			mutated = true;
+		}
+		return mutated ? { applied: true, loopId } : { applied: false, reason: 'no meaningful changes to apply' };
 	}
 
-	if (item.action === 'update_loop' && !item.loopId) {
-		const resolved = await resolveLoopId(item);
-		if (!resolved) return;
-		const changes = item.changes ?? {};
-		if (typeof changes.title === 'string') {
-			await updateLoop(resolved, { title: changes.title });
-		}
-		if (typeof changes.content === 'string') {
-			await updateLoop(resolved, { content: changes.content });
-		}
-		await updateLoopTags(resolved, {
-			priority: (changes.priority as string | null | undefined) ?? item.priority ?? undefined,
-			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined
-		});
-		if (item.tagTypeSlug) {
-			await setLoopTag(resolved, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });
-		}
-		await ensureAndLinkPeople(resolved, item.people);
-		await markAccepted();
+	if (plan.kind === 'set_tag') {
+		if (!plan.tags?.length) return { applied: false, reason: 'missing tag patch' };
+		await applyLoopTagPatches(loopId, plan.tags);
+		return { applied: true, loopId };
 	}
 
-	if (item.action === 'tag_loop' && item.loopId && item.tagTypeSlug) {
-		await setLoopTag(item.loopId, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });
-		await markAccepted();
-		return;
-	}
+	return { applied: false, reason: 'unsupported suggestion action' };
+}
 
-	if (item.action === 'tag_loop' && !item.loopId && item.tagTypeSlug) {
-		const resolved = await resolveLoopId(item);
-		if (!resolved) return;
-		await setLoopTag(resolved, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });
-		await markAccepted();
-		return;
+export async function applySuggestion(item: SuggestedAction, dumpId: string | null = null): Promise<SuggestionApplyResult> {
+	const plan = mapSuggestionToMutationPlan(item);
+	if (!plan) return { applied: false, reason: 'invalid suggestion payload' };
+	const result = await applyMutationPlan(plan, dumpId);
+	if (result.applied && item.suggestionId) {
+		await setSuggestionStatus(item.suggestionId, 'accepted');
 	}
+	return result;
 }

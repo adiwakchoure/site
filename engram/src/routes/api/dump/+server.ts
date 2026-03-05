@@ -2,27 +2,87 @@ import { json } from '@sveltejs/kit';
 import { env as privateEnv } from '$env/dynamic/private';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
-import type { SuggestedAction } from '$types/models';
+import type { LoopPriority, SuggestedAction } from '$types/models';
 import { ensureD1Schema, ensureSystemTagTypes } from '$db/bootstrap';
 
 const payloadSchema = z.object({ text: z.string().min(1) });
-const suggestionSchema = z.object({
-	action: z.enum(['open_loop', 'close_loop', 'add_note', 'update_loop', 'tag_loop']),
-	loopId: z.string().optional(),
-	title: z.string().optional(),
-	content: z.string().nullable().optional(),
-	priority: z.enum(['P0', 'P1', 'P2']).optional(),
-	deadline: z.string().nullable().optional(),
-	project: z.string().nullable().optional(),
-	people: z.array(z.string()).optional(),
-	tags: z.array(z.string()).optional(),
-	text: z.string().optional(),
-	changes: z.record(z.string(), z.string().nullable()).optional(),
-	tagTypeSlug: z.string().optional(),
-	tagValue: z.string().nullable().optional(),
-	confidence: z.enum(['high', 'medium', 'low']).optional()
-});
-const suggestionArraySchema = z.array(suggestionSchema);
+const MAX_SUGGESTIONS = 8;
+const confidenceSchema = z.enum(['high', 'medium', 'low']);
+const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const changesSchema = z
+	.object({
+		title: z.string().min(1).optional(),
+		content: z.string().nullable().optional(),
+		priority: z.enum(['P0', 'P1', 'P2']).nullable().optional(),
+		deadline: dateOnlySchema.nullable().optional(),
+		project: z.string().nullable().optional()
+	})
+	.strict()
+	.optional();
+const openLoopSchema = z
+	.object({
+		action: z.literal('open_loop'),
+		title: z.string().min(1),
+		content: z.string().nullable().optional(),
+		priority: z.enum(['P0', 'P1', 'P2']).optional(),
+		deadline: dateOnlySchema.nullable().optional(),
+		project: z.string().nullable().optional(),
+		people: z.array(z.string()).optional(),
+		tags: z.array(z.string()).optional(),
+		confidence: confidenceSchema.optional()
+	})
+	.strict();
+const closeLoopSchema = z
+	.object({
+		action: z.literal('close_loop'),
+		loopId: z.string().min(1).optional(),
+		title: z.string().min(1).optional(),
+		people: z.array(z.string()).optional(),
+		confidence: confidenceSchema.optional()
+	})
+	.strict()
+	.refine((item) => Boolean(item.loopId || item.title), { message: 'loopId or title required' });
+const addNoteSchema = z
+	.object({
+		action: z.literal('add_note'),
+		text: z.string().min(1),
+		loopId: z.string().min(1).optional(),
+		title: z.string().min(1).optional(),
+		people: z.array(z.string()).optional(),
+		confidence: confidenceSchema.optional()
+	})
+	.strict()
+	.refine((item) => Boolean(item.loopId || item.title), { message: 'loopId or title required' });
+const updateLoopSchema = z
+	.object({
+		action: z.literal('update_loop'),
+		loopId: z.string().min(1).optional(),
+		title: z.string().min(1).optional(),
+		changes: changesSchema,
+		priority: z.enum(['P0', 'P1', 'P2']).optional(),
+		deadline: dateOnlySchema.nullable().optional(),
+		project: z.string().nullable().optional(),
+		people: z.array(z.string()).optional(),
+		tagTypeSlug: z.string().min(1).optional(),
+		tagValue: z.string().nullable().optional(),
+		confidence: confidenceSchema.optional()
+	})
+	.strict()
+	.refine((item) => Boolean(item.loopId || item.title), { message: 'loopId or title required' });
+const tagLoopSchema = z
+	.object({
+		action: z.literal('tag_loop'),
+		loopId: z.string().min(1).optional(),
+		title: z.string().min(1).optional(),
+		tagTypeSlug: z.string().min(1),
+		tagValue: z.string().nullable().optional(),
+		confidence: confidenceSchema.optional()
+	})
+	.strict()
+	.refine((item) => Boolean(item.loopId || item.title), { message: 'loopId or title required' });
+const suggestionSchema = z.discriminatedUnion('action', [openLoopSchema, closeLoopSchema, addNoteSchema, updateLoopSchema, tagLoopSchema]);
+const suggestionArraySchema = z.array(suggestionSchema).max(MAX_SUGGESTIONS);
+const modelResponseSchema = z.object({ suggestions: z.array(z.unknown()) }).strict();
 
 type LoopCtx = { id: string; title: string; content: string | null; closed_at: string | null; updated_at: string };
 type TagCtx = { loop_id: string; slug: string; value_text: string | null; value_date: string | null };
@@ -40,10 +100,11 @@ function extractHeuristicDeadline(text: string): string | null {
 }
 
 function extractHeuristicPeople(text: string): string[] {
+	const fromMentions = text.match(/@([a-zA-Z][\w-]{1,32})/g)?.map((token) => token.slice(1)) ?? [];
 	const names = text.match(/\b[A-Z][a-z]{2,}(?:\s[A-Z][a-z]{2,})?\b/g) ?? [];
 	const out: string[] = [];
 	const seen = new Set<string>();
-	for (const name of names) {
+	for (const name of [...fromMentions, ...names]) {
 		const key = name.toLowerCase();
 		if (seen.has(key)) continue;
 		seen.add(key);
@@ -57,15 +118,19 @@ function heuristicSuggestions(text: string): SuggestedAction[] {
 	const suggestions: SuggestedAction[] = [];
 	for (const part of parts) {
 		const lower = part.toLowerCase();
-		const deadline = extractHeuristicDeadline(part);
+		const explicitDue = part.match(/\b(?:due|deadline)\s*:\s*(\d{4}-\d{2}-\d{2})\b/i)?.[1] ?? null;
+		const deadline = explicitDue ?? extractHeuristicDeadline(part);
 		const people = extractHeuristicPeople(part);
-		const priority: SuggestedAction['priority'] = /\basap\b|urgent|critical/i.test(lower) ? 'P0' : 'P1';
+		const explicitProject = part.match(/\bproject\s*:\s*([^,;]+)/i)?.[1]?.trim() ?? null;
+		const inlineTags = part.match(/#[a-zA-Z][\w-]*/g)?.map((token) => token.slice(1).toLowerCase()) ?? [];
+		const priority: LoopPriority =
+			/\bp0\b|\basap\b|urgent|critical/i.test(lower) ? 'P0' : /\bp2\b|\blow priority\b/.test(lower) ? 'P2' : 'P1';
 		if (/\b(done|finished|completed|shipped|resolved)\b/.test(lower)) {
-			suggestions.push({ action: 'close_loop', title: part, confidence: 'medium' });
+			suggestions.push({ action: 'close_loop', title: part, people, confidence: 'medium' });
 			continue;
 		}
 		if (/\b(cancel|scratch|kill|nevermind|forget it)\b/.test(lower)) {
-			suggestions.push({ action: 'close_loop', title: part, confidence: 'medium' });
+			suggestions.push({ action: 'close_loop', title: part, people, confidence: 'medium' });
 			continue;
 		}
 		if (/\b(note|status|update)\b/.test(lower)) {
@@ -77,72 +142,119 @@ function heuristicSuggestions(text: string): SuggestedAction[] {
 			title: part,
 			priority,
 			deadline,
+			project: explicitProject,
 			people,
+			tags: inlineTags,
 			confidence: 'medium'
 		});
 	}
 	return suggestions.length ? suggestions : [{ action: 'open_loop', title: text.trim(), priority: 'P1', confidence: 'medium' }];
 }
 
-function parseModelJson(raw: string): SuggestedAction[] | null {
-	try {
-		const parsed = JSON.parse(raw);
-		if (Array.isArray(parsed)) return parsed as SuggestedAction[];
-		if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { suggestions?: unknown }).suggestions)) {
-			return (parsed as { suggestions: SuggestedAction[] }).suggestions;
-		}
-		return null;
-	} catch {
-		const match = raw.match(/\[[\s\S]*\]/);
-		if (!match) {
-			const objectMatch = raw.match(/\{[\s\S]*\}/);
-			if (!objectMatch) return null;
-			try {
-				const parsed = JSON.parse(objectMatch[0]) as { suggestions?: unknown };
-				return Array.isArray(parsed.suggestions) ? (parsed.suggestions as SuggestedAction[]) : null;
-			} catch {
-				return null;
-			}
-		}
+function parseModelJson(raw: string): unknown[] | null {
+	const trimmed = raw.trim();
+	if (!trimmed) return null;
+	const attempts: string[] = [trimmed];
+	const objectStart = trimmed.indexOf('{');
+	const objectEnd = trimmed.lastIndexOf('}');
+	if (objectStart >= 0 && objectEnd > objectStart) {
+		attempts.push(trimmed.slice(objectStart, objectEnd + 1));
+	}
+	const arrayStart = trimmed.indexOf('[');
+	const arrayEnd = trimmed.lastIndexOf(']');
+	if (arrayStart >= 0 && arrayEnd > arrayStart) {
+		attempts.push(trimmed.slice(arrayStart, arrayEnd + 1));
+	}
+	for (const candidate of attempts) {
 		try {
-			const parsed = JSON.parse(match[0]);
-			return Array.isArray(parsed) ? (parsed as SuggestedAction[]) : null;
+			const parsed = JSON.parse(candidate);
+			const wrapped = modelResponseSchema.safeParse(parsed);
+			if (wrapped.success) return wrapped.data.suggestions;
+			if (Array.isArray(parsed)) return parsed;
 		} catch {
-			return null;
+			// Try next parse candidate.
 		}
 	}
+	return null;
 }
 
-function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallbackText: string): SuggestedAction[] {
+function normalizeSuggestions(input: unknown[] | null | undefined, fallbackText: string): SuggestedAction[] {
 	if (!input || input.length === 0) {
 		return [{ action: 'open_loop', title: fallbackText, priority: 'P1', confidence: 'low' }];
 	}
-	const parsed = suggestionArraySchema.safeParse(input);
-	const base = parsed.success ? parsed.data : input;
 	const cleaned: SuggestedAction[] = [];
-	for (const item of base) {
+	for (const candidate of input.slice(0, MAX_SUGGESTIONS)) {
+		const parsed = suggestionSchema.safeParse(candidate);
+		if (!parsed.success) continue;
+		const item = parsed.data;
 		const confidence: SuggestedAction['confidence'] = item.confidence ?? 'medium';
-		const people = item.people?.map((person) => person.trim()).filter(Boolean);
+		const people = ('people' in item ? item.people : undefined)?.map((person: string) => person.trim()).filter(Boolean).slice(0, 6);
 		if (item.action === 'open_loop') {
-			const title = item.title?.trim();
-			if (!title) continue;
-			cleaned.push({ ...item, title, people, priority: item.priority ?? 'P1', confidence });
-			continue;
+			cleaned.push({
+				action: 'open_loop',
+				title: item.title.trim(),
+				content: item.content?.trim() || null,
+				priority: item.priority ?? 'P1',
+				deadline: item.deadline ?? null,
+				project: item.project?.trim() || null,
+				people,
+				tags: item.tags?.map((tag) => tag.trim()).filter(Boolean).slice(0, 8),
+				confidence
+			});
+		}
+		if (item.action === 'close_loop') {
+			cleaned.push({
+				action: 'close_loop',
+				loopId: item.loopId?.trim(),
+				title: item.title?.trim(),
+				people,
+				confidence
+			});
 		}
 		if (item.action === 'add_note') {
-			const noteText = item.text?.trim() || item.title?.trim();
-			if (!noteText) continue;
-			cleaned.push({ ...item, people, text: noteText, confidence });
-			continue;
+			cleaned.push({
+				action: 'add_note',
+				loopId: item.loopId?.trim(),
+				title: item.title?.trim(),
+				text: item.text.trim(),
+				people,
+				confidence
+			});
 		}
-		if (item.action === 'close_loop' || item.action === 'update_loop' || item.action === 'tag_loop') {
-			if (!item.loopId && !item.title) continue;
-			cleaned.push({ ...item, people, confidence });
-			continue;
+		if (item.action === 'update_loop') {
+			cleaned.push({
+				action: 'update_loop',
+				loopId: item.loopId?.trim(),
+				title: item.title?.trim(),
+				changes: item.changes,
+				priority: item.priority,
+				deadline: item.deadline ?? null,
+				project: item.project?.trim() || null,
+				people,
+				tagTypeSlug: item.tagTypeSlug?.trim(),
+				tagValue: item.tagValue?.trim() || null,
+				confidence
+			});
+		}
+		if (item.action === 'tag_loop') {
+			cleaned.push({
+				action: 'tag_loop',
+				loopId: item.loopId?.trim(),
+				title: item.title?.trim(),
+				tagTypeSlug: item.tagTypeSlug.trim().toLowerCase(),
+				tagValue: item.tagValue?.trim() || null,
+				confidence
+			});
 		}
 	}
-	return cleaned.length ? cleaned : [{ action: 'open_loop', title: fallbackText, priority: 'P1', confidence: 'low' }];
+	const limited = suggestionArraySchema.safeParse(cleaned);
+	if (limited.success && limited.data.length > 0) return limited.data;
+	return [{ action: 'open_loop', title: fallbackText, priority: 'P1', confidence: 'low' }];
 }
+
+// Underscore-prefixed exports are allowed in SvelteKit endpoint modules.
+export const _parseModelJson = parseModelJson;
+export const _normalizeSuggestions = normalizeSuggestions;
 
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
 const GROQ_REASONING_MODEL = 'openai/gpt-oss-120b';
@@ -157,11 +269,35 @@ const GROQ_SUGGESTIONS_RESPONSE_SCHEMA = {
 			properties: {
 				suggestions: {
 					type: 'array',
+					maxItems: MAX_SUGGESTIONS,
 					items: {
 						type: 'object',
-						additionalProperties: true,
+						additionalProperties: false,
 						properties: {
-							action: { type: 'string' }
+							action: { enum: ['open_loop', 'close_loop', 'add_note', 'update_loop', 'tag_loop'] },
+							loopId: { type: 'string' },
+							title: { type: 'string' },
+							content: { type: ['string', 'null'] },
+							priority: { enum: ['P0', 'P1', 'P2'] },
+							deadline: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+							project: { type: ['string', 'null'] },
+							people: { type: 'array', items: { type: 'string' } },
+							tags: { type: 'array', items: { type: 'string' } },
+							text: { type: 'string' },
+							changes: {
+								type: 'object',
+								additionalProperties: false,
+								properties: {
+									title: { type: 'string' },
+									content: { type: ['string', 'null'] },
+									priority: { enum: ['P0', 'P1', 'P2', null] },
+									deadline: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+									project: { type: ['string', 'null'] }
+								}
+							},
+							tagTypeSlug: { type: 'string' },
+							tagValue: { type: ['string', 'null'] },
+							confidence: { enum: ['high', 'medium', 'low'] }
 						},
 						required: ['action']
 					}
@@ -299,6 +435,8 @@ async function loadActiveContext(env: App.Platform['env'], ownerId: string): Pro
 }
 
 function formatContextBlock(ctx: FullContext): string {
+	const openLoops = ctx.openLoops.slice(0, 40);
+	const closedLoops = ctx.closedLoops.slice(0, 20);
 	const loopTagMap = new Map<string, TagCtx[]>();
 	for (const tag of ctx.loopTags) {
 		const list = loopTagMap.get(tag.loop_id) ?? [];
@@ -337,15 +475,15 @@ function formatContextBlock(ctx: FullContext): string {
 		if (people) meta.push(`people: ${people}`);
 		meta.push(`updated ${l.updated_at.slice(0, 10)}`);
 
-		let line = `- [${l.id}] "${l.title}" | ${meta.join(' | ')}`;
+		let line = `- id=${l.id} title="${l.title}" | ${meta.join(' | ')}`;
 
 		// Append recent activity
 		const notes = loopNotesMap.get(l.id) ?? [];
 		const events = loopEventsMap.get(l.id) ?? [];
-		const activity = [
-			...notes.map((n) => `    note (${n.at}): ${n.body.slice(0, 120)}`),
-			...events.map((e) => `    ${e.kind} (${e.at}): ${e.body.slice(0, 120)}`)
-		].slice(0, 3);
+		const activity = [...notes.map((n) => `    note ${n.at}: ${n.body.slice(0, 80)}`), ...events.map((e) => `    ${e.kind} ${e.at}: ${e.body.slice(0, 80)}`)].slice(
+			0,
+			3
+		);
 		if (activity.length > 0) line += '\n' + activity.join('\n');
 
 		return line;
@@ -353,19 +491,21 @@ function formatContextBlock(ctx: FullContext): string {
 
 	const sections: string[] = [];
 
-	sections.push('== OPEN LOOPS (with recent activity) ==');
-	if (ctx.openLoops.length > 0) {
-		sections.push(ctx.openLoops.map(formatOpenLoop).join('\n'));
+	sections.push('== OPEN LOOPS ==');
+	if (openLoops.length > 0) {
+		sections.push(openLoops.map(formatOpenLoop).join('\n'));
 	} else {
 		sections.push('(none)');
 	}
 
 	sections.push('\n== RECENTLY CLOSED LOOPS ==');
-	if (ctx.closedLoops.length > 0) {
-		sections.push(ctx.closedLoops.map((l) => `- [${l.id}] "${l.title}" closed at ${l.closed_at ?? '?'}`).join('\n'));
+	if (closedLoops.length > 0) {
+		sections.push(closedLoops.map((l) => `- id=${l.id} title="${l.title}" closed=${l.closed_at ?? '?'}`).join('\n'));
 	} else {
 		sections.push('(none)');
 	}
+
+	sections.push(`\n== COUNTS ==\nopen=${ctx.openCount} overdue=${ctx.overdueCount}`);
 
 	return sections.join('\n');
 }
@@ -437,40 +577,41 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 		const today = new Date().toISOString().slice(0, 10);
 		const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()];
 
-		const systemPrompt = `You are an expert assistant that parses unstructured brain dumps into precise, structured actions for a loop+tags system.
+		const systemPrompt = `You parse unstructured brain dumps into loop suggestions.
 
-Return ONLY a JSON object: { "suggestions": [ ... ] }.
-Each suggestion object has this shape (include only relevant fields):
-{
-  "action": "open_loop" | "close_loop" | "add_note" | "update_loop" | "tag_loop",
-  "title": "string",
-  "content": "optional loop content",
-  "priority": "P0" | "P1" | "P2",
-  "deadline": "ISO date string or null",
-  "project": "project name or null",
-  "people": ["name"],
-  "tags": ["tag"],
-  "loopId": "existing loop id when matching an existing loop",
-  "changes": { "field": "new_value" },
-  "text": "note text for add_note actions",
-  "tagTypeSlug": "slug for custom tag",
-  "tagValue": "optional tag value",
-  "confidence": "high" | "medium" | "low"
-}
+Return ONLY JSON that matches:
+{ "suggestions": [ ... ] }
 
-RULES:
-- Prefer matching existing loops by title and return loopId when confident.
-- Convert metadata to tags via update_loop fields (priority, deadline, project, people).
-- Use tag_loop for arbitrary custom tags.
-- Extract multiple actions from one dump.
-- Keep output concise and deterministic.
-- Confidence high/medium/low as appropriate.`;
+Hard rules:
+- At most ${MAX_SUGGESTIONS} suggestions.
+- Use only actions: open_loop, close_loop, add_note, update_loop, tag_loop.
+- Use YYYY-MM-DD for deadline. Never use relative dates.
+- If uncertain about the target loop, do NOT guess loopId. Use title only and confidence="low".
+- confidence rubric:
+  - high: explicit unambiguous target + explicit intent
+  - medium: probable target/intention, minor ambiguity
+  - low: ambiguous target or inferred intent
+- Prefer loop primitives:
+  - open_loop for new work
+  - close_loop for done/cancelled work
+  - add_note for status updates
+  - update_loop for changing title/content/priority/deadline/project
+  - tag_loop for additional tags
+- Keep text concise. Do not output explanation prose.`;
 
-		const userPrompt = `Today is ${dayName}, ${today}.
+		const userPrompt = `Date: ${dayName}, ${today}
 
+Loop match rubric (deterministic):
+1) exact title match
+2) normalized title match (case/punctuation-insensitive)
+3) lexical overlap with recent activity
+4) if still ambiguous: omit loopId and set confidence=low
+
+Context:
 ${formatContextBlock(context)}
 
-Text: ${text}`;
+Input:
+${text}`;
 
 		const runModel = async (temperature: number) => runReasoningWithGroq(systemPrompt, userPrompt, temperature, groqApiKey);
 

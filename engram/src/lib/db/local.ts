@@ -4,6 +4,7 @@ import type {
 	Loop,
 	LoopEvent,
 	LoopNote,
+	SuggestionMutationTagPatch,
 	SuggestedAction,
 	SuggestionRecord,
 	SyncOp,
@@ -122,6 +123,15 @@ export async function setLoopTag(loopId: string, slug: string, value: string | n
 	};
 	await putTag(tag);
 	return tag;
+}
+
+export async function applyLoopTagPatches(loopId: string, patches: SuggestionMutationTagPatch[]) {
+	for (const patch of patches) {
+		await setLoopTag(loopId, patch.slug, patch.value ?? null, {
+			valueKind: patch.valueKind,
+			multi: patch.multi ? 1 : 0
+		});
+	}
 }
 
 export async function clearLoopTag(loopId: string, slug: string) {
@@ -298,13 +308,13 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'ti
 }
 
 export async function updateLoopTags(loopId: string, changes: { priority?: string | null; deadline?: string | null; project?: string | null }) {
-	if (changes.priority !== undefined) await setLoopTag(loopId, 'priority', changes.priority);
+	if (changes.priority !== undefined) await applyLoopTagPatches(loopId, [{ slug: 'priority', value: changes.priority ?? null }]);
 	if (changes.deadline !== undefined) {
-		if (changes.deadline) await setLoopTag(loopId, 'deadline', changes.deadline, { valueKind: 'date' });
+		if (changes.deadline) await applyLoopTagPatches(loopId, [{ slug: 'deadline', value: changes.deadline, valueKind: 'date' }]);
 		else await clearLoopTag(loopId, 'deadline');
 	}
 	if (changes.project !== undefined) {
-		if (changes.project) await setLoopTag(loopId, 'project', changes.project);
+		if (changes.project) await applyLoopTagPatches(loopId, [{ slug: 'project', value: changes.project }]);
 		else await clearLoopTag(loopId, 'project');
 	}
 }

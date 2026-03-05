@@ -30,6 +30,7 @@
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
 	let allDone = $state(false);
 	let liveStatus = $state('');
+	let suggestionNotice = $state('');
 	let activeSuggestion = $state<SuggestedAction | null>(null);
 	let textAreaEl = $state<HTMLTextAreaElement | null>(null);
 
@@ -95,6 +96,7 @@
 		mode = { kind: 'resting' };
 		text = '';
 		allDone = false;
+		suggestionNotice = '';
 		activeSuggestion = null;
 		wordReveal = [];
 		revealIndex = 0;
@@ -146,6 +148,7 @@
 			}));
 			suggestionsStore.set(items);
 			clearSlowTimer();
+			suggestionNotice = '';
 			mode = { kind: 'suggestions', transcript: body.transcript?.trim() || submitted, items };
 			announce(`${items.length} suggestions ready`);
 		} catch {
@@ -158,6 +161,7 @@
 			const items = fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id }));
 			suggestionsStore.set(items);
 			clearSlowTimer();
+			suggestionNotice = '';
 			mode = { kind: 'suggestions', transcript: submitted, items };
 			announce(`${items.length} suggestions ready`);
 		} finally {
@@ -202,6 +206,7 @@
 			suggestionsStore.set(items);
 			clearSlowTimer();
 			stopWordReveal();
+			suggestionNotice = '';
 			mode = { kind: 'suggestions', transcript, items };
 			announce(`${items.length} suggestions ready`);
 		} catch {
@@ -216,6 +221,7 @@
 			suggestionsStore.set(items);
 			clearSlowTimer();
 			stopWordReveal();
+			suggestionNotice = '';
 			mode = { kind: 'suggestions', transcript: fallbackText, items };
 			announce(`${items.length} suggestions ready`);
 		} finally {
@@ -347,12 +353,15 @@
 		activeSuggestion = item;
 		haptic(20);
 		try {
-			await applySuggestion(item, $suggestionContextStore.dumpId);
-			if (item.suggestionId) {
-				await setSuggestionStatus(item.suggestionId, 'accepted');
+			const result = await applySuggestion(item, $suggestionContextStore.dumpId);
+			if (!result.applied) {
+				suggestionNotice = result.reason ? `Skipped: ${result.reason}.` : 'Skipped: could not apply this suggestion.';
+				showToast('Suggestion skipped');
+				return;
 			}
 			const remaining = mode.items.filter((entry) => entry !== item);
 			suggestionsStore.set(remaining);
+			suggestionNotice = '';
 			showToast('Suggestion accepted');
 			if (remaining.length === 0) {
 				finishAllSuggestions();
@@ -545,6 +554,9 @@
 		<!-- Suggestions: transcript + cards + footer -->
 		<div class="suggestions-mode">
 			<p class="suggestion-transcript">{mode.transcript}</p>
+			{#if suggestionNotice}
+				<p class="suggestion-notice">{suggestionNotice}</p>
+			{/if}
 			<div class="suggestion-cards">
 				{#if allDone}
 					<div class="all-done">
@@ -924,6 +936,12 @@
 		overflow-y: auto;
 		padding-right: 2px;
 		scrollbar-gutter: stable;
+	}
+
+	.suggestion-notice {
+		margin: 6px 0 8px;
+		font-size: var(--text-xs);
+		color: var(--text3);
 	}
 
 	.all-done {

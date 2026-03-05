@@ -83,8 +83,43 @@ export interface SuggestionRecord {
 }
 
 export type SuggestionAction = 'open_loop' | 'close_loop' | 'add_note' | 'update_loop' | 'tag_loop';
+export type SuggestionConfidence = 'high' | 'medium' | 'low';
 
-export interface SuggestedAction {
+export interface SuggestedLoopChanges {
+	title?: string;
+	content?: string | null;
+	priority?: LoopPriority | null;
+	deadline?: string | null;
+	project?: string | null;
+}
+
+export interface SuggestionMutationTagPatch {
+	slug: string;
+	value: string | null;
+	multi?: boolean;
+	valueKind?: TagValueKind;
+}
+
+export interface SuggestionMutationPlan {
+	kind: 'create_loop' | 'update_loop' | 'close_loop' | 'add_note' | 'set_tag';
+	loopId?: string;
+	loopTitleHint?: string;
+	title?: string;
+	content?: string | null;
+	noteText?: string;
+	closeLoop?: boolean;
+	changes?: SuggestedLoopChanges;
+	tags?: SuggestionMutationTagPatch[];
+	confidence?: SuggestionConfidence;
+}
+
+export interface SuggestionApplyResult {
+	applied: boolean;
+	reason?: string;
+	loopId?: string;
+}
+
+interface SuggestedActionBase {
 	suggestionId?: string;
 	action: SuggestionAction;
 	loopId?: string;
@@ -96,11 +131,49 @@ export interface SuggestedAction {
 	people?: string[];
 	tags?: string[];
 	text?: string;
-	changes?: Record<string, string | null>;
+	changes?: SuggestedLoopChanges;
 	tagTypeSlug?: string;
 	tagValue?: string | null;
-	confidence?: 'high' | 'medium' | 'low';
+	confidence?: SuggestionConfidence;
 }
+
+export type SuggestedAction =
+	| (SuggestedActionBase & {
+			action: 'open_loop';
+			title: string;
+			content?: string | null;
+			priority?: LoopPriority;
+			deadline?: string | null;
+			project?: string | null;
+	  })
+	| (SuggestedActionBase & {
+			action: 'close_loop';
+			loopId?: string;
+			title?: string;
+	  })
+	| (SuggestedActionBase & {
+			action: 'add_note';
+			text: string;
+			loopId?: string;
+			title?: string;
+	  })
+	| (SuggestedActionBase & {
+			action: 'update_loop';
+			loopId?: string;
+			title?: string;
+			changes?: SuggestedLoopChanges;
+			priority?: LoopPriority;
+			deadline?: string | null;
+			project?: string | null;
+			content?: string | null;
+	  })
+	| (SuggestedActionBase & {
+			action: 'tag_loop';
+			loopId?: string;
+			title?: string;
+			tagTypeSlug: string;
+			tagValue?: string | null;
+	  });
 
 export type SyncTable = 'loops' | 'events' | 'dumps' | 'loop_notes' | 'tag_types' | 'tags';
 export type SyncTableV2 = SyncTable | 'suggestions';

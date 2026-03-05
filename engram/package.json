@@ -7,6 +7,8 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
+		"test": "vitest",
+		"test:run": "vitest run",
 		"deploy": "npm run build && wrangler pages deploy .svelte-kit/cloudflare --project-name engram",
 		"db:reset:local": "wrangler d1 execute engram --local --file=./reset.sql && wrangler d1 execute engram --local --file=./schema.sql && wrangler d1 execute engram --local --file=./seed.sql",
 		"db:reset:remote": "wrangler d1 execute engram --remote --file=./reset.sql && wrangler d1 execute engram --remote --file=./schema.sql && wrangler d1 execute engram --remote --file=./seed.sql",
@@ -25,6 +27,7 @@
 		"svelte-check": "^4.3.6",
 		"typescript": "^5.9.3",
 		"vite": "^7.3.1",
+		"vitest": "^3.2.4",
 		"wrangler": "^4.69.0"
 	},
 	"dependencies": {
