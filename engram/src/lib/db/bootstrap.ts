@@ -83,14 +83,10 @@ const SCHEMA_SQL = [
 ];
 
 const SYSTEM_TAG_TYPES = [
-	{ slug: 'state', name: 'State', valueKind: 'text', multi: 0 },
 	{ slug: 'deadline', name: 'Deadline', valueKind: 'date', multi: 0 },
 	{ slug: 'person', name: 'Person', valueKind: 'text', multi: 1 },
 	{ slug: 'project', name: 'Project', valueKind: 'text', multi: 0 },
-	{ slug: 'parent', name: 'Parent', valueKind: 'text', multi: 0 },
-	{ slug: 'priority', name: 'Priority', valueKind: 'text', multi: 0 },
-	{ slug: 'energy', name: 'Energy', valueKind: 'text', multi: 0 },
-	{ slug: 'closed_reason', name: 'Closed reason', valueKind: 'text', multi: 0 }
+	{ slug: 'priority', name: 'Priority', valueKind: 'text', multi: 0 }
 ] as const;
 
 let initialized = false;

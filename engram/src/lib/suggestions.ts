@@ -36,10 +36,8 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 			title: item.title,
 			content: item.content ?? null,
 			priority: item.priority ?? 'P1',
-			energy: item.energy ?? 'active',
 			deadline: item.deadline ?? null,
 			project: item.project ?? null,
-			parentId: item.parentId ?? null,
 			tags: item.tags ?? [],
 			dumpId
 		});
@@ -50,7 +48,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 
 	if (item.action === 'close_loop' && item.loopId) {
 		await ensureAndLinkPeople(item.loopId, item.people);
-		await closeLoop(item.loopId, item.reason ?? 'done', dumpId);
+		await closeLoop(item.loopId, dumpId);
 		await markAccepted();
 		return;
 	}
@@ -59,7 +57,7 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		const resolved = await resolveLoopId(item);
 		if (!resolved) return;
 		await ensureAndLinkPeople(resolved, item.people);
-		await closeLoop(resolved, item.reason ?? 'done', dumpId);
+		await closeLoop(resolved, dumpId);
 		await markAccepted();
 		return;
 	}
@@ -90,10 +88,8 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		}
 		await updateLoopTags(item.loopId, {
 			priority: (changes.priority as string | null | undefined) ?? item.priority ?? undefined,
-			energy: (changes.energy as string | null | undefined) ?? item.energy ?? undefined,
 			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined,
-			parent: typeof changes.parent === 'string' ? changes.parent : item.parentId ?? undefined
+			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined
 		});
 		if (item.tagTypeSlug) {
 			await setLoopTag(item.loopId, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });
@@ -115,10 +111,8 @@ export async function applySuggestion(item: SuggestedAction, dumpId: string | nu
 		}
 		await updateLoopTags(resolved, {
 			priority: (changes.priority as string | null | undefined) ?? item.priority ?? undefined,
-			energy: (changes.energy as string | null | undefined) ?? item.energy ?? undefined,
 			deadline: typeof changes.deadline === 'string' ? changes.deadline : item.deadline ?? undefined,
-			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined,
-			parent: typeof changes.parent === 'string' ? changes.parent : item.parentId ?? undefined
+			project: typeof changes.project === 'string' ? changes.project : item.project ?? undefined
 		});
 		if (item.tagTypeSlug) {
 			await setLoopTag(resolved, item.tagTypeSlug, item.tagValue ?? null, { multi: 1 });

@@ -82,23 +82,17 @@ export const suggestionContextStore = writable<{ dumpId: string | null }>({ dump
 
 type DerivedLoopMeta = {
 	state: LoopView['state'];
-	closedReason: LoopView['closedReason'];
 	priority: LoopView['priority'];
-	energy: LoopView['energy'];
 	deadline: string | null;
 	project: string | null;
-	parentId: string | null;
 	people: string[];
 };
 
 const DEFAULT_META: DerivedLoopMeta = {
 	state: 'open',
-	closedReason: null,
 	priority: 'P1',
-	energy: 'active',
 	deadline: null,
 	project: null,
-	parentId: null,
 	people: []
 };
 
@@ -110,13 +104,10 @@ export function deriveLoopViews(loops: Loop[], tags: Tag[], tagTypes: TagType[])
 		if (!slug) continue;
 		const meta = metaByLoop.get(tag.loopId) ?? { ...DEFAULT_META, people: [] };
 		const textValue = tag.valueText ?? tag.valueDate ?? null;
-		if (slug === 'state' && (textValue === 'open' || textValue === 'closed')) meta.state = textValue;
-		else if (slug === 'closed_reason' && textValue) meta.closedReason = textValue as LoopView['closedReason'];
+		if (slug === 'state' && (textValue === 'open' || textValue === 'closed' || textValue === 'archived')) meta.state = textValue;
 		else if (slug === 'priority' && (textValue === 'P0' || textValue === 'P1' || textValue === 'P2')) meta.priority = textValue;
-		else if (slug === 'energy' && (textValue === 'active' || textValue === 'waiting' || textValue === 'someday')) meta.energy = textValue;
 		else if (slug === 'deadline') meta.deadline = tag.valueDate ?? null;
 		else if (slug === 'project') meta.project = textValue;
-		else if (slug === 'parent') meta.parentId = textValue;
 		else if (slug === 'person' && textValue) meta.people = [...meta.people, textValue];
 		metaByLoop.set(tag.loopId, meta);
 	}
@@ -126,12 +117,9 @@ export function deriveLoopViews(loops: Loop[], tags: Tag[], tagTypes: TagType[])
 		return {
 			...loop,
 			state: loop.closedAt ? 'closed' : meta.state,
-			closedReason: meta.closedReason,
 			priority: meta.priority,
-			energy: meta.energy,
 			deadline: meta.deadline,
 			project: meta.project,
-			parentId: meta.parentId,
 			people: meta.people
 		};
 	});

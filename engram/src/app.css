@@ -527,6 +527,69 @@ select:focus-visible,
 	color: var(--text2);
 }
 
+.archive-sheet {
+	max-height: min(74vh, 620px);
+	grid-template-rows: auto auto 1fr;
+}
+
+.archive-search input {
+	width: 100%;
+	min-height: 40px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-soft);
+	background: var(--surface-2);
+	color: var(--text);
+	padding: 0 10px;
+}
+
+.archive-list {
+	overflow: auto;
+	display: grid;
+	gap: 8px;
+}
+
+.archive-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	border: 1px solid var(--border-soft);
+	background: var(--surface-1);
+	border-radius: var(--radius-md);
+	padding: 8px;
+}
+
+.archive-main {
+	min-width: 0;
+	display: grid;
+	gap: 2px;
+}
+
+.archive-main strong {
+	font-size: var(--text-sm);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.archive-main small {
+	font-size: var(--text-xs);
+	font-family: var(--font-mono);
+	color: var(--text3);
+}
+
+.archive-restore {
+	min-height: 34px;
+	padding: 0 10px;
+	flex: 0 0 auto;
+}
+
+.archive-empty {
+	margin: 0;
+	color: var(--text3);
+	font-size: var(--text-sm);
+}
+
 @media (max-width: 1023px) and (pointer: coarse) {
 	:root {
 		--safe-bottom: max(env(safe-area-inset-bottom), 24px);

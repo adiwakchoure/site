@@ -9,6 +9,8 @@
 	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
 	const events = $derived(($eventsStore ?? []) as LoopEvent[]);
 	const loading = $derived($loopViewsStore === null);
+	const naHint = 'N/A until enough data exists.';
+	const hasAnyLoops = $derived(loops.length > 0);
 	const openLoops = $derived(loops.filter((loop) => loop.state === 'open'));
 
 	const todayClosed = $derived.by(() => {
@@ -50,8 +52,13 @@
 	const closed7d = $derived(sevenDayStats.map((entry) => entry.closed));
 	const openedTotal7d = $derived(opened7d.reduce((acc, n) => acc + n, 0));
 	const closedTotal7d = $derived(closed7d.reduce((acc, n) => acc + n, 0));
+	const hasSevenDayData = $derived(openedTotal7d + closedTotal7d > 0);
 	const netClosed7d = $derived(closedTotal7d - openedTotal7d);
-	const closeRate7d = $derived(openedTotal7d > 0 ? Math.round((closedTotal7d / openedTotal7d) * 100) : closedTotal7d > 0 ? 100 : 0);
+	const closeRate7d = $derived.by<number | null>(() => {
+		if (!hasSevenDayData) return null;
+		if (openedTotal7d > 0) return Math.round((closedTotal7d / openedTotal7d) * 100);
+		return 100;
+	});
 
 	const carryoverCount = $derived.by(() => {
 		const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -95,12 +102,9 @@
 		})
 	);
 	const overdueDelta7d = $derived(overdue7d[overdue7d.length - 1] - overdue7d[0]);
+	const hasDeadlineData = $derived(loops.some((loop) => Boolean(loop.deadline)));
 
 	const topBlockerTag = $derived.by<BlockerSignal>(() => {
-		const waitingCount = openLoops.filter((loop) => loop.energy === 'waiting').length;
-		if (waitingCount > 0) {
-			return { label: `waiting (${waitingCount})`, href: '/loops?filter=open&tag=energy:waiting' };
-		}
 		const counts = new Map<string, { label: string; href: string; count: number }>();
 		for (const loop of openLoops) {
 			if (loop.project) {
@@ -196,13 +200,17 @@
 				<a class="signal-card" href={netClosed7d < 0 ? '/loops?filter=open' : '/loops?filter=all'}>
 					<div class="card-top">
 						<span>Opened vs Closed (7d)</span>
-						<strong>{closedTotal7d} / {openedTotal7d}</strong>
+						<strong>{hasSevenDayData ? `${closedTotal7d} / ${openedTotal7d}` : 'N/A'}</strong>
 					</div>
-					<svg viewBox={`0 0 ${sparkline.width} ${sparkline.height}`} aria-hidden="true">
-						<path d={sparkline.openedPath} fill="none" stroke="var(--amber)" stroke-width="2" opacity="0.65" />
-						<path d={sparkline.closedPath} fill="none" stroke="var(--green)" stroke-width="2" />
-					</svg>
-					<small>{netClosed7d >= 0 ? `+${netClosed7d}` : netClosed7d} net closed</small>
+					{#if hasSevenDayData}
+						<svg viewBox={`0 0 ${sparkline.width} ${sparkline.height}`} aria-hidden="true">
+							<path d={sparkline.openedPath} fill="none" stroke="var(--amber)" stroke-width="2" opacity="0.65" />
+							<path d={sparkline.closedPath} fill="none" stroke="var(--green)" stroke-width="2" />
+						</svg>
+						<small>{netClosed7d >= 0 ? `+${netClosed7d}` : netClosed7d} net closed</small>
+					{:else}
+						<small>{naHint}</small>
+					{/if}
 				</a>
 
 				<a class="signal-card" href="/loops?filter=open">
@@ -216,37 +224,44 @@
 				<a class="signal-card" href={topBlockerTag.href}>
 					<div class="card-top">
 						<span>Top blocker tag</span>
-						<strong>{topBlockerTag.label}</strong>
+						<strong>{openLoops.length > 0 ? topBlockerTag.label : 'N/A'}</strong>
 					</div>
-					<small>Tap to open filtered loops.</small>
+					<small>{openLoops.length > 0 ? 'Tap to open filtered loops.' : naHint}</small>
 				</a>
 			</div>
 
 			<div class="signals-more">
 				<a class="signal-mini" href="/loops?filter=all">
 					<span>Close rate (7d)</span>
-					<strong>{closeRate7d}%</strong>
-					<small>{closedTotal7d} closed / {openedTotal7d} opened</small>
+					<strong>{closeRate7d === null ? 'N/A' : `${closeRate7d}%`}</strong>
+					<small>{hasSevenDayData ? `${closedTotal7d} closed / ${openedTotal7d} opened` : naHint}</small>
 				</a>
 				<a class="signal-mini" href="/loops?filter=closed">
 					<span>Median time-to-close (14d)</span>
-					<strong>{medianCloseDays14d === null ? '--' : `${medianCloseDays14d}d`}</strong>
-					<small>{medianCloseDays14d === null ? 'Need recent closes' : 'Lower is faster loop flow'}</small>
+					<strong>{medianCloseDays14d === null ? 'N/A' : `${medianCloseDays14d}d`}</strong>
+					<small>{medianCloseDays14d === null ? naHint : 'Lower is faster loop flow'}</small>
+				</a>
+				<a class="signal-mini" href="/loops?filter=all">
+					<span>Reopened (7d)</span>
+					<strong>{hasAnyLoops ? reopened7dCount : 'N/A'}</strong>
+					<small>{hasAnyLoops ? 'How often loops are bouncing back open' : naHint}</small>
 				</a>
 				<a class="signal-mini" href="/loops?filter=open">
-					<span>Closed this week</span>
-					<strong>{closedTotal7d}</strong>
-					<small>Outcome volume for the week</small>
-				</a>
-				<a class="signal-mini" href="/loops?filter=open">
-					<span>Opened this week</span>
-					<strong>{openedTotal7d}</strong>
-					<small>Incoming work pressure</small>
+					<span>Overdue delta (7d)</span>
+					<strong>{hasDeadlineData ? (overdueDelta7d >= 0 ? `+${overdueDelta7d}` : overdueDelta7d) : 'N/A'}</strong>
+					{#if hasDeadlineData}
+						<svg viewBox={`0 0 ${overdueSparkline.width} ${overdueSparkline.height}`} aria-hidden="true">
+							<path d={overdueSparkline.path} fill="none" stroke="var(--red)" stroke-width="2" />
+						</svg>
+						<small>Change in overdue open loops across 7 days</small>
+					{:else}
+						<small>{naHint}</small>
+					{/if}
 				</a>
 				<a class="signal-mini" href="/loops?filter=open">
 					<span>Current open loops</span>
-					<strong>{openLoops.length}</strong>
-					<small>Active queue right now</small>
+					<strong>{hasAnyLoops ? openLoops.length : 'N/A'}</strong>
+					<small>{hasAnyLoops ? 'Active queue right now' : naHint}</small>
 				</a>
 			</div>
 		</section>

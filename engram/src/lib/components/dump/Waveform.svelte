@@ -27,7 +27,7 @@
 			const mean = chunk.reduce((s, v) => s + v, 0) / Math.max(1, chunk.length);
 			const normalized = Math.max(0, Math.min(1, mean / 200));
 			const edgeDistance = Math.abs(i - center) / center;
-			// Keep a softer envelope by tapering energy toward both edges.
+			// Keep a softer envelope by tapering amplitude toward both edges.
 			const edgeTaper = 1 - edgeDistance * 0.55;
 			next.push(normalized * edgeTaper);
 		}

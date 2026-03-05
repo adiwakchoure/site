@@ -151,7 +151,6 @@
 			{#if !ghost}
 				<div class="meta">
 					<Badge label={loop.priority} color={loop.priority === 'P0' ? '#c0453a' : loop.priority === 'P1' ? '#a0714a' : '#8a857f'} />
-					<Badge label={loop.energy} color="#6e63a0" />
 					{#if overdue}<Badge label="over" color="#c0453a" />{/if}
 					{#if dueSoon}<Badge label={`due ${new Date(loop.deadline as string).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`} color="#a07c28" />{/if}
 				</div>

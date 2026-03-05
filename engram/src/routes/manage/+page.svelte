@@ -3,7 +3,7 @@
 	<p>Account and preferences live in Profile. Work controls stay in Capture, Loops, and Review.</p>
 	<ul>
 		<li>Loop metadata remains typed tags (no separate admin catalogs).</li>
-		<li>Set deadlines/energy in loop detail or from capture suggestions.</li>
+		<li>Set deadlines, priority, project, and people from capture suggestions.</li>
 		<li>Use Review for lightweight action queues, not passive reporting.</li>
 	</ul>
 	<a class="logout" href="/loops">Back to loops</a>

@@ -8,6 +8,8 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"deploy": "npm run build && wrangler pages deploy .svelte-kit/cloudflare --project-name engram",
+		"db:reset:local": "wrangler d1 execute engram --local --file=./reset.sql && wrangler d1 execute engram --local --file=./schema.sql && wrangler d1 execute engram --local --file=./seed.sql",
+		"db:reset:remote": "wrangler d1 execute engram --remote --file=./reset.sql && wrangler d1 execute engram --remote --file=./schema.sql && wrangler d1 execute engram --remote --file=./seed.sql",
 		"cf-typegen": "wrangler types",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

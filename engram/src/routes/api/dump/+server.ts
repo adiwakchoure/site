@@ -12,13 +12,10 @@ const suggestionSchema = z.object({
 	title: z.string().optional(),
 	content: z.string().nullable().optional(),
 	priority: z.enum(['P0', 'P1', 'P2']).optional(),
-	energy: z.enum(['active', 'waiting', 'someday']).optional(),
 	deadline: z.string().nullable().optional(),
 	project: z.string().nullable().optional(),
 	people: z.array(z.string()).optional(),
-	parentId: z.string().nullable().optional(),
 	tags: z.array(z.string()).optional(),
-	reason: z.enum(['done', 'dropped', 'delegated', 'irrelevant']).optional(),
 	text: z.string().optional(),
 	changes: z.record(z.string(), z.string().nullable()).optional(),
 	tagTypeSlug: z.string().optional(),
@@ -63,13 +60,12 @@ function heuristicSuggestions(text: string): SuggestedAction[] {
 		const deadline = extractHeuristicDeadline(part);
 		const people = extractHeuristicPeople(part);
 		const priority: SuggestedAction['priority'] = /\basap\b|urgent|critical/i.test(lower) ? 'P0' : 'P1';
-		const energy: SuggestedAction['energy'] = /waiting\s+on|blocked|pending/i.test(lower) ? 'waiting' : /someday|maybe|eventually/i.test(lower) ? 'someday' : 'active';
 		if (/\b(done|finished|completed|shipped|resolved)\b/.test(lower)) {
-			suggestions.push({ action: 'close_loop', title: part, reason: 'done', confidence: 'medium' });
+			suggestions.push({ action: 'close_loop', title: part, confidence: 'medium' });
 			continue;
 		}
 		if (/\b(cancel|scratch|kill|nevermind|forget it)\b/.test(lower)) {
-			suggestions.push({ action: 'close_loop', title: part, reason: 'dropped', confidence: 'medium' });
+			suggestions.push({ action: 'close_loop', title: part, confidence: 'medium' });
 			continue;
 		}
 		if (/\b(note|status|update)\b/.test(lower)) {
@@ -80,13 +76,12 @@ function heuristicSuggestions(text: string): SuggestedAction[] {
 			action: 'open_loop',
 			title: part,
 			priority,
-			energy,
 			deadline,
 			people,
 			confidence: 'medium'
 		});
 	}
-	return suggestions.length ? suggestions : [{ action: 'open_loop', title: text.trim(), priority: 'P1', energy: 'active', confidence: 'medium' }];
+	return suggestions.length ? suggestions : [{ action: 'open_loop', title: text.trim(), priority: 'P1', confidence: 'medium' }];
 }
 
 function parseModelJson(raw: string): SuggestedAction[] | null {
@@ -120,7 +115,7 @@ function parseModelJson(raw: string): SuggestedAction[] | null {
 
 function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallbackText: string): SuggestedAction[] {
 	if (!input || input.length === 0) {
-		return [{ action: 'open_loop', title: fallbackText, priority: 'P1', energy: 'active', confidence: 'low' }];
+		return [{ action: 'open_loop', title: fallbackText, priority: 'P1', confidence: 'low' }];
 	}
 	const parsed = suggestionArraySchema.safeParse(input);
 	const base = parsed.success ? parsed.data : input;
@@ -131,7 +126,7 @@ function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallb
 		if (item.action === 'open_loop') {
 			const title = item.title?.trim();
 			if (!title) continue;
-			cleaned.push({ ...item, title, people, priority: item.priority ?? 'P1', energy: item.energy ?? 'active', confidence });
+			cleaned.push({ ...item, title, people, priority: item.priority ?? 'P1', confidence });
 			continue;
 		}
 		if (item.action === 'add_note') {
@@ -146,7 +141,7 @@ function normalizeSuggestions(input: SuggestedAction[] | null | undefined, fallb
 			continue;
 		}
 	}
-	return cleaned.length ? cleaned : [{ action: 'open_loop', title: fallbackText, priority: 'P1', energy: 'active', confidence: 'low' }];
+	return cleaned.length ? cleaned : [{ action: 'open_loop', title: fallbackText, priority: 'P1', confidence: 'low' }];
 }
 
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
@@ -334,10 +329,9 @@ function formatContextBlock(ctx: FullContext): string {
 		const people = tags.filter((t) => t.slug === 'person').map((t) => t.value_text).filter(Boolean).join(', ');
 		const meta: string[] = [];
 		const priority = get('priority')?.value_text ?? 'P1';
-		const energy = get('energy')?.value_text ?? 'active';
 		const project = get('project')?.value_text;
 		const deadline = get('deadline')?.value_date;
-		meta.push(`${priority}, ${energy}`);
+		meta.push(priority);
 		if (deadline) meta.push(`due ${deadline}`);
 		if (project) meta.push(`project: ${project}`);
 		if (people) meta.push(`people: ${people}`);
@@ -402,7 +396,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 				transcript: '',
 				source,
 				aiAvailable: false,
-				suggestions: [{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', energy: 'active', confidence: 'low' }]
+				suggestions: [{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', confidence: 'low' }]
 			});
 		}
 
@@ -418,7 +412,7 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 				source,
 				aiAvailable,
 				active: { openCount: context.openCount, overdueCount: context.overdueCount },
-				suggestions: [{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', energy: 'active', confidence: 'low' }]
+				suggestions: [{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', confidence: 'low' }]
 			});
 		}
 	} else {
@@ -452,14 +446,11 @@ Each suggestion object has this shape (include only relevant fields):
   "title": "string",
   "content": "optional loop content",
   "priority": "P0" | "P1" | "P2",
-  "energy": "active" | "waiting" | "someday",
   "deadline": "ISO date string or null",
   "project": "project name or null",
   "people": ["name"],
-  "parentId": "optional parent loop id",
   "tags": ["tag"],
   "loopId": "existing loop id when matching an existing loop",
-  "reason": "done" | "dropped" | "delegated" | "irrelevant",
   "changes": { "field": "new_value" },
   "text": "note text for add_note actions",
   "tagTypeSlug": "slug for custom tag",
@@ -469,7 +460,7 @@ Each suggestion object has this shape (include only relevant fields):
 
 RULES:
 - Prefer matching existing loops by title and return loopId when confident.
-- Convert metadata to tags via update_loop fields (priority, energy, deadline, project, people).
+- Convert metadata to tags via update_loop fields (priority, deadline, project, people).
 - Use tag_loop for arbitrary custom tags.
 - Extract multiple actions from one dump.
 - Keep output concise and deterministic.

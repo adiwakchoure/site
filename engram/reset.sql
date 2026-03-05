@@ -1,0 +1,11 @@
+PRAGMA foreign_keys = OFF;
+
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS tag_types;
+DROP TABLE IF EXISTS loop_notes;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS suggestions;
+DROP TABLE IF EXISTS dumps;
+DROP TABLE IF EXISTS loops;
+
+PRAGMA foreign_keys = ON;

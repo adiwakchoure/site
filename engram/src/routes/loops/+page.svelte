@@ -77,11 +77,9 @@
 	const quickFilterLabels = new Map<string, string>([
 		['priority:P0', 'P0'],
 		['priority:P1', 'P1'],
-		['energy:waiting', 'Waiting'],
-		['energy:active', 'Active'],
 		['deadline:today', 'Due today']
 	]);
-	const quickFilterOrder = ['priority:P0', 'priority:P1', 'energy:waiting', 'energy:active', 'deadline:today'];
+	const quickFilterOrder = ['priority:P0', 'priority:P1', 'deadline:today'];
 
 	function parseToken(token: string): { slug: string; value: string } {
 		const [slug, ...rest] = token.split(':');
@@ -98,13 +96,11 @@
 	function filterTokensForLoop(loop: LoopView, tagBag: Map<string, string[]>): string[] {
 		const tokens = new Set<string>();
 		tokens.add(`priority:${loop.priority}`);
-		tokens.add(`energy:${loop.energy}`);
 		if (loop.deadline) {
 			tokens.add(`deadline:${loop.deadline}`);
 			if (loop.deadline === new Date().toISOString().slice(0, 10)) tokens.add('deadline:today');
 		}
 		if (loop.project) tokens.add(`project:${loop.project}`);
-		if (loop.parentId) tokens.add(`parent:${loop.parentId}`);
 		for (const person of loop.people) {
 			tokens.add(`person:${person}`);
 		}
@@ -165,11 +161,9 @@
 			const [slug, ...rest] = token.split(':');
 			const value = rest.join(':');
 			if (slug === 'priority') return loop.priority === value;
-			if (slug === 'energy') return loop.energy === value;
 			if (slug === 'deadline' && value === 'today') return Boolean(loop.deadline && loop.deadline === new Date().toISOString().slice(0, 10));
 			if (slug === 'deadline') return loop.deadline === value;
 			if (slug === 'project') return loop.project === value;
-			if (slug === 'parent') return loop.parentId === value;
 			if (slug === 'person') return loop.people.includes(value);
 			const values = tagBag.get(slug) ?? [];
 			return values.includes(value);
@@ -221,8 +215,7 @@
 			const ageDays = Math.max(1, Math.floor((Date.now() - +new Date(loop.openedAt)) / (1000 * 60 * 60 * 24)));
 			const overdueWeight = loop.deadline && +new Date(loop.deadline) < Date.now() ? 3 : 0;
 			const priorityWeight = loop.priority === 'P0' ? 3 : loop.priority === 'P1' ? 2 : 1;
-			const waitingPenalty = loop.energy === 'waiting' ? 1 : 0;
-			return priorityWeight * 3 + overdueWeight * 4 + Math.min(ageDays, 14) - waitingPenalty;
+			return priorityWeight * 3 + overdueWeight * 4 + Math.min(ageDays, 14);
 		};
 		if (a.state === 'open' && b.state === 'open') return score(b) - score(a);
 		if (a.state !== b.state) return a.state === 'open' ? -1 : 1;
@@ -248,7 +241,7 @@
 	async function onSwipeAction(loopId: string, action: 'close' | 'reopen' | 'snooze') {
 		try {
 			if (action === 'close') {
-				await closeLoop(loopId, 'done');
+				await closeLoop(loopId);
 				showToast('Loop closed');
 				return;
 			}

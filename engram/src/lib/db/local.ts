@@ -1,6 +1,5 @@
 import { db } from '$db/schema';
 import type {
-	ClosedReason,
 	Dump,
 	Loop,
 	LoopEvent,
@@ -242,7 +241,7 @@ export async function deleteTagValue(tagTypeId: string, value: string) {
 	return { deleted };
 }
 
-export async function createLoop(input: { title: string; content?: string | null; deadline?: string | null; project?: string | null; priority?: 'P0' | 'P1' | 'P2'; energy?: 'active' | 'waiting' | 'someday'; parentId?: string | null; tags?: string[]; dumpId?: string | null; }) {
+export async function createLoop(input: { title: string; content?: string | null; deadline?: string | null; project?: string | null; priority?: 'P0' | 'P1' | 'P2'; tags?: string[]; dumpId?: string | null; }) {
 	const now = nowIso();
 	const loop: Loop = {
 		id: uid('loop'),
@@ -255,10 +254,8 @@ export async function createLoop(input: { title: string; content?: string | null
 	await putLoop(loop);
 	await setLoopTag(loop.id, 'state', 'open');
 	await setLoopTag(loop.id, 'priority', input.priority ?? 'P1');
-	await setLoopTag(loop.id, 'energy', input.energy ?? 'active');
 	if (input.deadline) await setLoopTag(loop.id, 'deadline', input.deadline, { valueKind: 'date' });
 	if (input.project) await setLoopTag(loop.id, 'project', input.project);
-	if (input.parentId) await setLoopTag(loop.id, 'parent', input.parentId);
 	for (const tag of input.tags ?? []) {
 		await setLoopTag(loop.id, tag, 'true', { multi: 1 });
 	}
@@ -300,9 +297,8 @@ export async function updateLoop(loopId: string, changes: Partial<Pick<Loop, 'ti
 	return next;
 }
 
-export async function updateLoopTags(loopId: string, changes: { priority?: string | null; energy?: string | null; deadline?: string | null; project?: string | null; parent?: string | null }) {
+export async function updateLoopTags(loopId: string, changes: { priority?: string | null; deadline?: string | null; project?: string | null }) {
 	if (changes.priority !== undefined) await setLoopTag(loopId, 'priority', changes.priority);
-	if (changes.energy !== undefined) await setLoopTag(loopId, 'energy', changes.energy);
 	if (changes.deadline !== undefined) {
 		if (changes.deadline) await setLoopTag(loopId, 'deadline', changes.deadline, { valueKind: 'date' });
 		else await clearLoopTag(loopId, 'deadline');
@@ -311,13 +307,57 @@ export async function updateLoopTags(loopId: string, changes: { priority?: strin
 		if (changes.project) await setLoopTag(loopId, 'project', changes.project);
 		else await clearLoopTag(loopId, 'project');
 	}
-	if (changes.parent !== undefined) {
-		if (changes.parent) await setLoopTag(loopId, 'parent', changes.parent);
-		else await clearLoopTag(loopId, 'parent');
-	}
 }
 
-export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: string | null = null) {
+export async function archiveLoop(loopId: string) {
+	const current = await db.loops.get(loopId);
+	if (!current) return null;
+	const now = nowIso();
+	const next: Loop = {
+		...current,
+		updatedAt: now
+	};
+	await putLoop(next);
+	await setLoopTag(loopId, 'state', 'archived');
+	await putEvent({
+		id: uid('evt'),
+		loopId,
+		kind: 'updated',
+		body: 'state -> archived',
+		meta: JSON.stringify({ state: 'archived' }),
+		dumpId: null,
+		sequence: await nextSequence(loopId),
+		createdAt: now
+	});
+	syncAndRefresh();
+	return next;
+}
+
+export async function unarchiveLoop(loopId: string) {
+	const current = await db.loops.get(loopId);
+	if (!current) return null;
+	const now = nowIso();
+	const next: Loop = {
+		...current,
+		updatedAt: now
+	};
+	await putLoop(next);
+	await setLoopTag(loopId, 'state', 'open');
+	await putEvent({
+		id: uid('evt'),
+		loopId,
+		kind: 'updated',
+		body: 'state -> open',
+		meta: JSON.stringify({ state: 'open' }),
+		dumpId: null,
+		sequence: await nextSequence(loopId),
+		createdAt: now
+	});
+	syncAndRefresh();
+	return next;
+}
+
+export async function closeLoop(loopId: string, dumpId: string | null = null) {
 	const current = await db.loops.get(loopId);
 	if (!current) return null;
 	const now = nowIso();
@@ -328,13 +368,12 @@ export async function closeLoop(loopId: string, reason: ClosedReason, dumpId: st
 	};
 	await putLoop(next);
 	await setLoopTag(loopId, 'state', 'closed');
-	await setLoopTag(loopId, 'closed_reason', reason);
 	await putEvent({
 		id: uid('evt'),
 		loopId,
 		kind: 'closed',
 		body: null,
-		meta: JSON.stringify({ reason }),
+		meta: null,
 		dumpId,
 		sequence: await nextSequence(loopId),
 		createdAt: now
@@ -354,7 +393,6 @@ export async function reopenLoop(loopId: string) {
 	};
 	await putLoop(next);
 	await setLoopTag(loopId, 'state', 'open');
-	await clearLoopTag(loopId, 'closed_reason');
 	await putEvent({
 		id: uid('evt'),
 		loopId,

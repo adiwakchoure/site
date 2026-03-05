@@ -3,16 +3,20 @@
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { BarChart3, Layers, SlidersHorizontal, Tags, UserRound, X } from 'lucide-svelte';
+	import { unarchiveLoop } from '$db/local';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
-	import { navFilterActiveByRoute, navFilterSheetNonce, syncState, refreshFromServer } from '$stores/app';
-	import { toastMessage } from '$stores/toast';
+	import { loopViewsStore, navFilterActiveByRoute, navFilterSheetNonce, syncState, refreshFromServer } from '$stores/app';
+	import { showToast, toastMessage } from '$stores/toast';
+	import type { LoopView } from '$types/models';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
 
 	let { children } = $props();
 	let profileOpen = $state(false);
+	let archiveOpen = $state(false);
+	let archiveSearch = $state('');
 	const tabs = [
 		{ href: '/loops', label: 'Loops', icon: Layers },
 		{ href: '/tags', label: 'Tags', icon: Tags },
@@ -23,9 +27,34 @@
 		if ($page.url.pathname.startsWith('/loops')) return Boolean($navFilterActiveByRoute['/loops']);
 		return false;
 	});
+	const archivedLoops = $derived((($loopViewsStore ?? []) as LoopView[]).filter((loop) => loop.state === 'archived'));
+	const filteredArchivedLoops = $derived.by(() => {
+		const query = archiveSearch.trim().toLowerCase();
+		if (!query) return archivedLoops;
+		return archivedLoops.filter((loop) => {
+			const text = [loop.title, loop.content ?? '', loop.project ?? '', loop.people.join(' ')]
+				.join(' ')
+				.toLowerCase();
+			return text.includes(query);
+		});
+	});
 
 	function openNavFilters() {
 		navFilterSheetNonce.update((n) => n + 1);
+	}
+
+	function openArchiveShelf() {
+		archiveOpen = true;
+		profileOpen = false;
+	}
+
+	async function restoreArchivedLoop(loopId: string) {
+		try {
+			await unarchiveLoop(loopId);
+			showToast('Loop restored');
+		} catch {
+			showToast('Could not restore loop');
+		}
 	}
 
 	onMount(() => {
@@ -263,9 +292,59 @@
 					</div>
 				</div>
 				<footer class="profile-footer">
+					<button type="button" class="profile-action muted" onclick={openArchiveShelf}>Archive</button>
 					<a class="profile-action muted" href="/manage">Settings</a>
 					<a class="profile-action" href="/api/auth/logout">Sign out</a>
 				</footer>
+			</div>
+		</div>
+	{/if}
+	{#if archiveOpen}
+		<div
+			class="profile-overlay"
+			role="button"
+			tabindex="0"
+			aria-label="Close archive shelf"
+			onpointerdown={() => (archiveOpen = false)}
+			onkeydown={(event) => {
+				if (event.key === 'Escape') archiveOpen = false;
+			}}
+		>
+			<div
+				class="profile-sheet archive-sheet"
+				role="dialog"
+				aria-modal="true"
+				aria-label="Archived loops"
+				tabindex="-1"
+				onpointerdown={(event) => event.stopPropagation()}
+			>
+				<header class="profile-head">
+					<div class="profile-title-wrap">
+						<h2>Archive</h2>
+						<p>Search and restore archived loops</p>
+					</div>
+					<button type="button" class="profile-close" onclick={() => (archiveOpen = false)}><X size={14} /></button>
+				</header>
+				<label class="archive-search">
+					<input bind:value={archiveSearch} placeholder="Search archived loops..." />
+				</label>
+				<div class="archive-list">
+					{#if filteredArchivedLoops.length === 0}
+						<p class="archive-empty">No archived loops found.</p>
+					{:else}
+						{#each filteredArchivedLoops as loop (loop.id)}
+							<div class="archive-item">
+								<div class="archive-main">
+									<strong>{loop.title}</strong>
+									<small>{new Date(loop.updatedAt).toLocaleDateString()}</small>
+								</div>
+								<button type="button" class="profile-action muted archive-restore" onclick={() => restoreArchivedLoop(loop.id)}>
+									Restore
+								</button>
+							</div>
+						{/each}
+					{/if}
+				</div>
 			</div>
 		</div>
 	{/if}

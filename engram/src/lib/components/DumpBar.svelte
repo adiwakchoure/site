@@ -152,7 +152,7 @@
 			transcriptStore.set({ text: submitted, source: 'text', at: new Date().toISOString() });
 			parsePhase.set('suggesting');
 			const fallback: SuggestedAction[] = [
-				{ action: 'open_loop', title: submitted, priority: 'P1', energy: 'active', confidence: browser && navigator.onLine ? 'low' : 'medium' }
+				{ action: 'open_loop', title: submitted, priority: 'P1', confidence: browser && navigator.onLine ? 'low' : 'medium' }
 			];
 			const records = await putSuggestionsForDump(dump.id, fallback);
 			const items = fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id }));
@@ -209,7 +209,7 @@
 			transcriptStore.set({ text: fallbackText, source: 'voice', at: new Date().toISOString() });
 			parsePhase.set('suggesting');
 			const fallback: SuggestedAction[] = [
-				{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', energy: 'active', confidence: browser && navigator.onLine ? 'low' : 'medium' }
+				{ action: 'open_loop', title: 'Review voice dump', priority: 'P1', confidence: browser && navigator.onLine ? 'low' : 'medium' }
 			];
 			const records = await putSuggestionsForDump(dump.id, fallback);
 			const items = fallback.map((item, idx) => ({ ...item, suggestionId: records[idx]?.id }));

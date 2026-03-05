@@ -1,7 +1,5 @@
-export type LoopState = 'open' | 'closed';
-export type LoopEnergy = 'active' | 'waiting' | 'someday';
+export type LoopState = 'open' | 'closed' | 'archived';
 export type LoopPriority = 'P0' | 'P1' | 'P2';
-export type ClosedReason = 'done' | 'dropped' | 'delegated' | 'irrelevant';
 export type EventKind = 'created' | 'closed' | 'reopened' | 'updated' | 'noted' | 'deleted';
 export type SuggestionStatus = 'pending' | 'accepted' | 'dismissed';
 export type TagValueKind = 'text' | 'number' | 'date' | 'json';
@@ -18,12 +16,9 @@ export interface Loop {
 // Derived, UI-level shape computed from Loop + tags.
 export interface LoopView extends Loop {
 	state: LoopState;
-	closedReason: ClosedReason | null;
-	energy: LoopEnergy;
 	priority: LoopPriority;
 	deadline: string | null;
 	project: string | null;
-	parentId: string | null;
 	people: string[];
 }
 
@@ -96,13 +91,10 @@ export interface SuggestedAction {
 	title?: string;
 	content?: string | null;
 	priority?: LoopPriority;
-	energy?: LoopEnergy;
 	deadline?: string | null;
 	project?: string | null;
 	people?: string[];
-	parentId?: string | null;
 	tags?: string[];
-	reason?: ClosedReason;
 	text?: string;
 	changes?: Record<string, string | null>;
 	tagTypeSlug?: string;

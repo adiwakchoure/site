@@ -10,7 +10,6 @@
 		onSubmit: (data: {
 			title: string;
 			priority: 'P0' | 'P1' | 'P2';
-			energy: 'active' | 'waiting' | 'someday';
 			people: string[];
 			project: string | null;
 			deadline: string | null;
@@ -20,7 +19,6 @@
 
 	let title = $state('');
 	let priority = $state<'P0' | 'P1' | 'P2'>('P1');
-	let energy = $state<'active' | 'waiting' | 'someday'>('active');
 	let peopleInput = $state('');
 	let projectInput = $state('');
 	let deadline = $state<string | null>(null);
@@ -28,7 +26,7 @@
 	function handleSubmit() {
 		if (!title.trim()) return;
 		const people = peopleInput.split(',').map((v) => v.trim()).filter(Boolean);
-		onSubmit({ title: title.trim(), priority, energy, people, project: projectInput.trim() || null, deadline });
+		onSubmit({ title: title.trim(), priority, people, project: projectInput.trim() || null, deadline });
 	}
 </script>
 
@@ -52,18 +50,13 @@
 		<Pill label="P2" active={priority === 'P2'} onClick={() => (priority = 'P2')} />
 	</div>
 
-	<div class="row g2" style="animation-delay:80ms">
-		<Pill label="Active" active={energy === 'active'} onClick={() => (energy = 'active')} />
-		<Pill label="Waiting" active={energy === 'waiting'} onClick={() => (energy = 'waiting')} />
-	</div>
-
-	<div class="chips-row g3" style="animation-delay:120ms">
+	<div class="chips-row g3" style="animation-delay:80ms">
 		<input class="search-input" bind:value={peopleInput} placeholder="People (comma separated)" />
 		<input class="search-input" bind:value={projectInput} placeholder="Project (optional)" />
 		<input class="date-input" type="date" bind:value={deadline} />
 	</div>
 
-	<div class="footer g4" style="animation-delay:160ms">
+	<div class="footer g4" style="animation-delay:120ms">
 		<button class="cancel-btn" onclick={onCancel} title="Cancel">
 			<X size={16} />
 		</button>
