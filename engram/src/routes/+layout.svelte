@@ -58,17 +58,20 @@
 	}
 
 	onMount(() => {
-		const isLoginRoute = () => window.location.pathname === '/login';
+		const isShellRoute = () => {
+			const pathname = window.location.pathname;
+			return pathname !== '/login' && pathname !== '/';
+		};
 
 		// Boot: full refresh from D1 (Dexie/liveQuery provides instant render from cache)
-		if (navigator.onLine && !isLoginRoute()) {
+		if (navigator.onLine && isShellRoute()) {
 			syncState.set('syncing');
 			refreshFromServer().then((ok) => syncState.set(ok ? 'synced' : 'error'));
 		}
 
 		// Periodic refresh: catch any external D1 changes
 		const timer = setInterval(async () => {
-			if (!navigator.onLine || isLoginRoute()) {
+			if (!navigator.onLine || !isShellRoute()) {
 				syncState.set('offline');
 				return;
 			}
@@ -79,7 +82,7 @@
 
 		// Reconnect handler
 		const onOnline = async () => {
-			if (isLoginRoute()) return;
+			if (!isShellRoute()) return;
 			syncState.set('syncing');
 			await syncNow();
 			await refreshFromServer();
@@ -181,7 +184,7 @@
 	<meta name="theme-color" content="#faf9f7" />
 </svelte:head>
 
-{#if $page.url.pathname === '/login'}
+{#if $page.url.pathname === '/login' || $page.url.pathname === '/'}
 	{@render children()}
 {:else}
 	<main class="app-shell">

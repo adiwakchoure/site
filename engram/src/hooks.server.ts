@@ -5,7 +5,13 @@ const AUTH_ROUTE_PREFIX = '/api/auth';
 const LOGIN_ROUTE = '/login';
 
 function isPublicPath(pathname: string): boolean {
-	return pathname.startsWith('/_app') || pathname === '/favicon.ico' || pathname === '/manifest.webmanifest' || pathname === LOGIN_ROUTE;
+	return (
+		pathname.startsWith('/_app') ||
+		pathname === '/' ||
+		pathname === '/favicon.ico' ||
+		pathname === '/manifest.webmanifest' ||
+		pathname === LOGIN_ROUTE
+	);
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
