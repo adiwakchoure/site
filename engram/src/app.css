@@ -87,7 +87,7 @@ body {
 	height: 100%;
 	overflow-x: hidden;
 	background: var(--bg);
-	overscroll-behavior-y: none;
+	overscroll-behavior-y: auto;
 	-webkit-tap-highlight-color: transparent;
 }
 
@@ -202,11 +202,13 @@ select {
 .content {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
+	overflow-x: hidden;
+	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) var(--space-2);
 	position: relative;
 	display: grid;
-	overscroll-behavior-y: contain;
+	overscroll-behavior-y: auto;
+	-webkit-overflow-scrolling: touch;
 }
 
 .route-transition {
@@ -547,10 +549,6 @@ select:focus-visible,
 }
 
 @media (min-width: 1024px) {
-	body {
-		overflow: hidden;
-	}
-
 	.app-shell {
 		width: min(100%, var(--shell-desktop));
 		height: 100dvh;
@@ -565,7 +563,8 @@ select:focus-visible,
 		border-radius: var(--radius-xl);
 		border: 1px solid rgba(0, 0, 0, 0.06);
 		background: color-mix(in srgb, var(--bg) 88%, #fff);
-		overflow: hidden;
+		overflow-x: hidden;
+		overflow-y: auto;
 		box-shadow: var(--shadow-md);
 	}
 
