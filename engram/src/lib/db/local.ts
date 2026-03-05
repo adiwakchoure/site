@@ -60,6 +60,31 @@ async function putTag(tag: Tag) {
 	await queue({ table: 'tags', op: 'put', id: tag.id, data: tag as unknown as Record<string, unknown>, ts: tag.updatedAt });
 }
 
+function readTagValue(tag: Tag): string | null {
+	if (tag.valueText != null) return tag.valueText;
+	if (tag.valueDate != null) return tag.valueDate;
+	if (tag.valueNumber != null) return String(tag.valueNumber);
+	if (tag.valueJson != null) return tag.valueJson;
+	return null;
+}
+
+function assignTagValue(tag: Tag, valueKind: TagType['valueKind'], rawValue: string, updatedAt: string): Tag {
+	if (valueKind === 'number') {
+		const numeric = Number(rawValue);
+		if (!Number.isFinite(numeric)) {
+			throw new Error('Invalid number value');
+		}
+		return { ...tag, valueText: null, valueDate: null, valueJson: null, valueNumber: numeric, updatedAt };
+	}
+	if (valueKind === 'date') {
+		return { ...tag, valueText: null, valueNumber: null, valueJson: null, valueDate: rawValue, updatedAt };
+	}
+	if (valueKind === 'json') {
+		return { ...tag, valueText: null, valueNumber: null, valueDate: null, valueJson: rawValue, updatedAt };
+	}
+	return { ...tag, valueNumber: null, valueDate: null, valueJson: null, valueText: rawValue, updatedAt };
+}
+
 export async function ensureTagType(slug: string, opts?: { name?: string; valueKind?: TagType['valueKind']; multi?: number; system?: number }) {
 	const found = await db.tagTypes.where('slug').equals(slug).first();
 	if (found) return found;
@@ -109,6 +134,112 @@ export async function clearLoopTag(loopId: string, slug: string) {
 		await db.tags.delete(tag.id);
 		await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
 	}
+}
+
+export async function createTagType(input: { name: string; slug: string; valueKind?: TagType['valueKind']; multi?: number }) {
+	const slug = input.slug.trim().toLowerCase();
+	if (!slug) throw new Error('Slug is required');
+	const exists = await db.tagTypes.where('slug').equals(slug).first();
+	if (exists) throw new Error('Slug already exists');
+	const now = nowIso();
+	const tagType: TagType = {
+		id: uid('tt'),
+		slug,
+		name: input.name.trim() || slug,
+		valueKind: input.valueKind ?? 'text',
+		multi: input.multi ?? 0,
+		system: 0,
+		createdAt: now
+	};
+	await putTagType(tagType);
+	syncAndRefresh();
+	return tagType;
+}
+
+export async function renameTagType(tagTypeId: string, nextName: string) {
+	const current = await db.tagTypes.get(tagTypeId);
+	if (!current) return null;
+	const name = nextName.trim();
+	if (!name || name === current.name) return current;
+	const next: TagType = { ...current, name };
+	await putTagType(next);
+	syncAndRefresh();
+	return next;
+}
+
+export async function deleteTagType(tagTypeId: string) {
+	const current = await db.tagTypes.get(tagTypeId);
+	if (!current) return { deletedTags: 0 };
+	const tags = await db.tags.where('tagTypeId').equals(tagTypeId).toArray();
+	const now = nowIso();
+	for (const tag of tags) {
+		await db.tags.delete(tag.id);
+		await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
+	}
+	await db.tagTypes.delete(tagTypeId);
+	await queue({ table: 'tag_types', op: 'delete', id: tagTypeId, ts: now });
+	syncAndRefresh();
+	return { deletedTags: tags.length };
+}
+
+export async function mergeTagValues(tagTypeId: string, sourceValues: string[], targetValue: string) {
+	const type = await db.tagTypes.get(tagTypeId);
+	if (!type) return { updated: 0, deleted: 0 };
+	const normalizedTarget = targetValue.trim();
+	if (!normalizedTarget) throw new Error('Target value is required');
+	const sourceSet = new Set(sourceValues.map((value) => value.trim()).filter(Boolean).filter((value) => value !== normalizedTarget));
+	if (sourceSet.size === 0) return { updated: 0, deleted: 0 };
+
+	const tags = await db.tags.where('tagTypeId').equals(tagTypeId).toArray();
+	const ordered = [...tags].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+	const now = nowIso();
+	const keptKeys = new Set<string>();
+	let updated = 0;
+	let deleted = 0;
+
+	for (const tag of ordered) {
+		const currentValue = readTagValue(tag);
+		if (!currentValue) continue;
+		const nextValue = sourceSet.has(currentValue) ? normalizedTarget : currentValue;
+		const key = `${tag.loopId}::${nextValue}`;
+		if (keptKeys.has(key)) {
+			await db.tags.delete(tag.id);
+			await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
+			deleted += 1;
+			continue;
+		}
+		keptKeys.add(key);
+		if (nextValue !== currentValue) {
+			const next = assignTagValue(tag, type.valueKind, nextValue, now);
+			await putTag(next);
+			updated += 1;
+		}
+	}
+
+	syncAndRefresh();
+	return { updated, deleted };
+}
+
+export async function renameTagValue(tagTypeId: string, fromValue: string, toValue: string) {
+	return mergeTagValues(tagTypeId, [fromValue], toValue);
+}
+
+export async function deleteTagValue(tagTypeId: string, value: string) {
+	const target = value.trim();
+	if (!target) return { deleted: 0 };
+	const type = await db.tagTypes.get(tagTypeId);
+	if (!type) return { deleted: 0 };
+	const tags = await db.tags.where('tagTypeId').equals(tagTypeId).toArray();
+	const now = nowIso();
+	let deleted = 0;
+	for (const tag of tags) {
+		if (readTagValue(tag) !== target) continue;
+		await db.tags.delete(tag.id);
+		await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
+		deleted += 1;
+	}
+	if (deleted > 0) syncAndRefresh();
+	return { deleted };
 }
 
 export async function createLoop(input: { title: string; content?: string | null; deadline?: string | null; project?: string | null; priority?: 'P0' | 'P1' | 'P2'; energy?: 'active' | 'waiting' | 'someday'; parentId?: string | null; tags?: string[]; dumpId?: string | null; }) {

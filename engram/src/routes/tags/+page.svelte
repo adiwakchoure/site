@@ -1,722 +1,477 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-	import { page } from '$app/stores';
-	import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
+	import ManageDrawer from '$components/manage/ManageDrawer.svelte';
 	import Empty from '$components/Empty.svelte';
-	import Pill from '$components/Pill.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
-	import { loopViewsStore, navFilterActiveByRoute, navFilterSheetNonce, tagsStore, tagTypesStore } from '$stores/app';
-	import { isOverdue } from '$lib/utils';
-	import type { LoopView, Tag, TagType } from '$types/models';
+	import { createTagType, deleteTagType, deleteTagValue, renameTagType, renameTagValue } from '$db/local';
+	import { tagsStore, tagTypesStore } from '$stores/app';
+	import { showToast } from '$stores/toast';
+	import type { Tag, TagType } from '$types/models';
 
-	type TagRow = {
+	type TagValueStat = {
 		value: string;
-		open: LoopView[];
-		closed: LoopView[];
-		overdueCount: number;
+		tagCount: number;
+		loopCount: number;
 	};
 
-	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
+	type TagTypeStat = {
+		type: TagType;
+		tagCount: number;
+		loopCount: number;
+		values: TagValueStat[];
+	};
+
 	const tags = $derived(($tagsStore ?? []) as Tag[]);
 	const tagTypes = $derived(($tagTypesStore ?? []) as TagType[]);
 
-	const hiddenPivots = new Set(['state', 'closed_reason']);
-	const pivotOptions = $derived.by(() => {
-		const dynamic = tagTypes
-			.filter((type) => !hiddenPivots.has(type.slug))
-			.map((type) => ({ slug: type.slug, label: type.name || type.slug }));
-		const bySlug = new Map(dynamic.map((option) => [option.slug, option]));
-		// Keep "People" as a stable first pivot even if type metadata is incomplete.
-		if (!bySlug.has('person')) bySlug.set('person', { slug: 'person', label: 'People' });
-		const ordered = [...bySlug.values()];
-		ordered.sort((a, b) => {
-			if (a.slug === 'person') return -1;
-			if (b.slug === 'person') return 1;
-			return a.label.localeCompare(b.label);
-		});
-		return ordered;
-	});
+	let newTypeName = $state('');
+	let creatingType = $state(false);
+	let actionBusy = $state(false);
+	let actionMode = $state<'renameType' | 'deleteType' | 'renameValue' | 'deleteValue' | null>(null);
+	let selectedType = $state<TagType | null>(null);
+	let selectedValue = $state('');
+	let actionInput = $state('');
 
-	let pivot = $state('person');
-	let hydratedPivot = $state(false);
-	let pivotRailEl = $state<HTMLDivElement | null>(null);
-	let showLeftChevron = $state(false);
-	let showRightChevron = $state(false);
-	let selectedRow = $state<TagRow | null>(null);
-	let filterSheetOpen = $state(false);
-	let handledNavFilterNonce = $state(0);
+	const loading = $derived($tagTypesStore === null || $tagsStore === null);
 
-	$effect(() => {
-		if (!browser || hydratedPivot) return;
-		const stored = localStorage.getItem('engram:tags-pivot');
-		if (stored && pivotOptions.some((option) => option.slug === stored)) {
-			pivot = stored;
-		}
-		hydratedPivot = true;
-	});
-
-	$effect(() => {
-		if (pivotOptions.length === 0) return;
-		if (!pivotOptions.some((option) => option.slug === pivot)) {
-			pivot = 'person';
-		}
-	});
-
-	$effect(() => {
-		if (!browser) return;
-		localStorage.setItem('engram:tags-pivot', pivot);
-	});
-
-	$effect(() => {
-		const nonce = $navFilterSheetNonce;
-		if (!$page.url.pathname.startsWith('/tags') || nonce === handledNavFilterNonce) return;
-		handledNavFilterNonce = nonce;
-		filterSheetOpen = true;
-	});
-
-	$effect(() => {
-		navFilterActiveByRoute.update((state) => ({
-			...state,
-			'/tags': pivot !== 'person'
-		}));
-	});
-
-	function updatePivotOverflow() {
-		if (!pivotRailEl) return;
-		const maxLeft = Math.max(0, pivotRailEl.scrollWidth - pivotRailEl.clientWidth);
-		showLeftChevron = pivotRailEl.scrollLeft > 6;
-		showRightChevron = maxLeft - pivotRailEl.scrollLeft > 6;
+	function tagValue(tag: Tag): string | null {
+		if (tag.valueText != null) return tag.valueText;
+		if (tag.valueDate != null) return tag.valueDate;
+		if (tag.valueNumber != null) return String(tag.valueNumber);
+		if (tag.valueJson != null) return tag.valueJson;
+		return null;
 	}
 
-	function scrollPivotRail(direction: 'left' | 'right') {
-		if (!pivotRailEl) return;
-		const delta = Math.max(140, Math.round(pivotRailEl.clientWidth * 0.7));
-		pivotRailEl.scrollBy({ left: direction === 'right' ? delta : -delta, behavior: 'smooth' });
+	function slugify(value: string): string {
+		return value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '_')
+			.replace(/^_+|_+$/g, '');
 	}
 
-	$effect(() => {
-		if (!browser || !pivotRailEl) return;
-		pivotOptions;
-		const onScroll = () => updatePivotOverflow();
-		const onResize = () => updatePivotOverflow();
-		pivotRailEl.addEventListener('scroll', onScroll, { passive: true });
-		window.addEventListener('resize', onResize);
-		const resizeObserver = new ResizeObserver(() => updatePivotOverflow());
-		resizeObserver.observe(pivotRailEl);
-		requestAnimationFrame(updatePivotOverflow);
-		return () => {
-			pivotRailEl?.removeEventListener('scroll', onScroll);
-			window.removeEventListener('resize', onResize);
-			resizeObserver.disconnect();
-		};
-	});
-
-	const tagSlugByTypeId = $derived(new Map(tagTypes.map((type) => [type.id, type.slug])));
-	const loopTagMap = $derived.by(() => {
-		const map = new Map<string, Map<string, string[]>>();
+	const typeStats = $derived.by<TagTypeStat[]>(() => {
+		const tagsByType = new Map<string, Tag[]>();
 		for (const tag of tags) {
-			const slug = tagSlugByTypeId.get(tag.tagTypeId);
-			if (!slug) continue;
-			const value = tag.valueText ?? tag.valueDate ?? (tag.valueNumber != null ? String(tag.valueNumber) : null);
-			if (!value) continue;
-			const loopMap = map.get(tag.loopId) ?? new Map<string, string[]>();
-			const values = loopMap.get(slug) ?? [];
-			if (!values.includes(value)) values.push(value);
-			loopMap.set(slug, values);
-			map.set(tag.loopId, loopMap);
+			const list = tagsByType.get(tag.tagTypeId) ?? [];
+			list.push(tag);
+			tagsByType.set(tag.tagTypeId, list);
 		}
-		return map;
-	});
 
-	function valuesForPivot(loop: LoopView, slug: string): string[] {
-		if (slug === 'person') return loop.people;
-		if (slug === 'priority') return [loop.priority];
-		if (slug === 'energy') return [loop.energy];
-		if (slug === 'deadline') return loop.deadline ? [loop.deadline] : [];
-		if (slug === 'project') return loop.project ? [loop.project] : [];
-		if (slug === 'parent') return loop.parentId ? [loop.parentId] : [];
-		return loopTagMap.get(loop.id)?.get(slug) ?? [];
-	}
+		const stats = tagTypes.map((type) => {
+			const related = tagsByType.get(type.id) ?? [];
+			const loopIds = new Set<string>();
+			const values = new Map<string, { count: number; loopIds: Set<string> }>();
 
-	const rows = $derived.by<TagRow[]>(() => {
-		const grouped = new Map<string, LoopView[]>();
-		for (const loop of loops) {
-			const values = valuesForPivot(loop, pivot);
-			for (const value of values) {
-				const list = grouped.get(value) ?? [];
-				list.push(loop);
-				grouped.set(value, list);
+			for (const tag of related) {
+				loopIds.add(tag.loopId);
+				const value = tagValue(tag);
+				if (!value) continue;
+				const row = values.get(value) ?? { count: 0, loopIds: new Set<string>() };
+				row.count += 1;
+				row.loopIds.add(tag.loopId);
+				values.set(value, row);
 			}
-		}
-		return [...grouped.entries()]
-			.map(([value, related]) => {
-				const open = related.filter((loop) => loop.state === 'open');
-				const closed = related.filter((loop) => loop.state === 'closed');
-				const overdueCount = open.filter((loop) => isOverdue(loop.deadline, loop.closedAt)).length;
-				return { value, open, closed, overdueCount };
-			})
-			.sort((a, b) => b.open.length - a.open.length || b.overdueCount - a.overdueCount || a.value.localeCompare(b.value));
+
+			const sortedValues: TagValueStat[] = [...values.entries()]
+				.map(([value, row]) => ({ value, tagCount: row.count, loopCount: row.loopIds.size }))
+				.sort((a, b) => b.loopCount - a.loopCount || b.tagCount - a.tagCount || a.value.localeCompare(b.value));
+
+			return {
+				type,
+				tagCount: related.length,
+				loopCount: loopIds.size,
+				values: sortedValues
+			};
+		});
+
+		return stats.sort((a, b) => {
+			if (a.type.system !== b.type.system) return a.type.system ? 1 : -1;
+			return b.loopCount - a.loopCount || a.type.name.localeCompare(b.type.name);
+		});
 	});
 
-	function hrefForRow(value: string): string {
-		const params = new URLSearchParams();
-		params.set('filter', 'open');
-		params.append('tag', `${pivot}:${value}`);
-		return `/loops?${params.toString()}`;
+	async function handleCreateType() {
+		const name = newTypeName.trim();
+		if (!name) {
+			showToast('Name is required');
+			return;
+		}
+		const slug = slugify(name);
+		if (!slug) {
+			showToast('Could not create slug from name');
+			return;
+		}
+		creatingType = true;
+		try {
+			await createTagType({ name, slug });
+			newTypeName = '';
+			showToast('Tag type created');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not create tag type');
+		} finally {
+			creatingType = false;
+		}
 	}
 
-	function openRowDrawer(row: TagRow) {
-		selectedRow = row;
+	function openRenameType(type: TagType) {
+		selectedType = type;
+		selectedValue = '';
+		actionInput = type.name;
+		actionMode = 'renameType';
 	}
 
-	function closeRowDrawer() {
-		selectedRow = null;
+	function openDeleteType(type: TagType) {
+		if (type.system) {
+			showToast('System tag types cannot be deleted');
+			return;
+		}
+		selectedType = type;
+		selectedValue = '';
+		actionInput = '';
+		actionMode = 'deleteType';
 	}
 
-	const loading = $derived($loopViewsStore === null || $tagTypesStore === null || $tagsStore === null);
+	function openRenameValue(type: TagType, value: string) {
+		selectedType = type;
+		selectedValue = value;
+		actionInput = value;
+		actionMode = 'renameValue';
+	}
+
+	function openDeleteValue(type: TagType, value: string) {
+		selectedType = type;
+		selectedValue = value;
+		actionInput = '';
+		actionMode = 'deleteValue';
+	}
+
+	function closeActionDrawer() {
+		if (actionBusy) return;
+		actionMode = null;
+		selectedType = null;
+		selectedValue = '';
+		actionInput = '';
+	}
+
+	function actionTitle() {
+		if (actionMode === 'renameType') return 'Rename tag type';
+		if (actionMode === 'deleteType') return 'Delete tag type';
+		if (actionMode === 'renameValue') return 'Rename tag value';
+		if (actionMode === 'deleteValue') return 'Delete tag value';
+		return 'Tag action';
+	}
+
+	async function submitAction() {
+		if (!selectedType || !actionMode) return;
+		actionBusy = true;
+		try {
+			if (actionMode === 'renameType') {
+				const next = actionInput.trim();
+				if (!next || next === selectedType.name) return;
+				await renameTagType(selectedType.id, next);
+				showToast('Tag type renamed');
+			}
+			if (actionMode === 'deleteType') {
+				const result = await deleteTagType(selectedType.id);
+				showToast(`Tag type deleted (${result.deletedTags} tags removed)`);
+			}
+			if (actionMode === 'renameValue') {
+				const next = actionInput.trim();
+				if (!next || next === selectedValue) return;
+				const result = await renameTagValue(selectedType.id, selectedValue, next);
+				showToast(`Updated ${result.updated} tag${result.updated === 1 ? '' : 's'}`);
+			}
+			if (actionMode === 'deleteValue') {
+				const result = await deleteTagValue(selectedType.id, selectedValue);
+				showToast(`Deleted ${result.deleted} tag${result.deleted === 1 ? '' : 's'}`);
+			}
+			closeActionDrawer();
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Could not complete action');
+		} finally {
+			actionBusy = false;
+		}
+	}
 </script>
 
 {#if loading}
-	<Skeleton lines={6} />
+	<Skeleton lines={8} />
 {:else}
-	<section class="tags-view">
-		<header class="tags-head">
+	<section class="tags-page">
+		<header class="page-head">
 			<h2>Tags</h2>
-			<div class="pivot-rail-wrap" class:overflowed={showLeftChevron || showRightChevron}>
-				{#if showLeftChevron}
-					<button type="button" class="pivot-chevron left" aria-label="Scroll tags left" onclick={() => scrollPivotRail('left')}>
-						<ChevronLeft size={15} />
-					</button>
-				{/if}
-				<div class="pivot-rail" bind:this={pivotRailEl}>
-					{#each pivotOptions as option}
-						<Pill label={option.label} active={pivot === option.slug} onClick={() => (pivot = option.slug)} />
-					{/each}
-				</div>
-				{#if showRightChevron}
-					<button type="button" class="pivot-chevron right" aria-label="Scroll tags right" onclick={() => scrollPivotRail('right')}>
-						<ChevronRight size={15} />
-					</button>
-				{/if}
-			</div>
+			<p>Configure tag types and clean up tag values used across loops.</p>
 		</header>
 
-		{#if rows.length === 0}
-			<Empty label="No tags yet for this pivot" icon={true} hint="Capture loops and apply tags to see grouped action rows." />
+		<form
+			class="create-type panel"
+			onsubmit={(event) => {
+				event.preventDefault();
+				handleCreateType();
+			}}
+		>
+			<h3>Create tag type</h3>
+			<div class="grid">
+				<label>
+					<span>Name</span>
+					<input bind:value={newTypeName} />
+				</label>
+			</div>
+			<footer>
+				<button type="submit" disabled={creatingType}>{creatingType ? 'Creating...' : 'Create type'}</button>
+			</footer>
+		</form>
+
+		{#if typeStats.length === 0}
+			<Empty label="No tag types yet" icon={true} hint="Create a tag type to start organizing loops." />
 		{:else}
-			<div class="list-wrap">
-				<div class="rows">
-					{#each rows as row}
-						<button class="row panel" type="button" onclick={() => openRowDrawer(row)}>
-							<div class="row-head">
-								<strong class="row-title">{row.value}</strong>
-								<small class="row-cta">view</small>
+			<div class="type-list">
+				{#each typeStats as group}
+					<article class="type-card panel">
+						<header class="type-head">
+							<div>
+								<h3>{group.type.name}</h3>
+								<p>{group.loopCount} loops · {group.tagCount} tags</p>
 							</div>
-							<div class="row-meta">
-								<span class="meta-chip">{row.open.length} open</span>
-								{#if row.overdueCount > 0}
-									<span class="meta-chip risk">{row.overdueCount} overdue</span>
-								{/if}
-								{#if row.closed.length > 0}
-									<span class="meta-chip">{row.closed.length} closed</span>
-								{/if}
+							<div class="actions">
+								<button type="button" onclick={() => openRenameType(group.type)}>Rename</button>
+								<button type="button" class="danger" disabled={Boolean(group.type.system)} onclick={() => openDeleteType(group.type)}>
+									Delete
+								</button>
 							</div>
-							<div class="preview">
-								{#if row.open.length === 0}
-									<span>No open loops</span>
-								{:else}
-									{#each row.open.slice(0, 2) as loop}
-										<span>{loop.title}</span>
-									{/each}
-								{/if}
+						</header>
+
+						{#if group.values.length === 0}
+							<p class="muted">No values used yet.</p>
+						{:else}
+							<div class="value-list">
+								{#each group.values as value}
+									<div class="value-row">
+										<div class="value-main">
+											<strong>{value.value}</strong>
+											<small>{value.loopCount} loops · {value.tagCount} tags</small>
+										</div>
+										<div class="actions">
+											<button type="button" onclick={() => openRenameValue(group.type, value.value)}>Rename</button>
+											<button type="button" class="danger" onclick={() => openDeleteValue(group.type, value.value)}>Delete</button>
+										</div>
+									</div>
+								{/each}
 							</div>
-						</button>
-					{/each}
-				</div>
+						{/if}
+					</article>
+				{/each}
 			</div>
 		{/if}
 	</section>
 {/if}
 
-{#if selectedRow}
-	<div
-		class="drawer-overlay"
-		role="button"
-		tabindex="0"
-		aria-label="Close tag drawer"
-		onpointerdown={closeRowDrawer}
-		onkeydown={(event) => {
-			if (event.key === 'Escape') closeRowDrawer();
-		}}
-	>
-		<div
-			class="drawer panel"
-			role="dialog"
-			aria-modal="true"
-			aria-label={`Tag ${selectedRow.value}`}
-			tabindex="-1"
-			onpointerdown={(event) => event.stopPropagation()}
-		>
-			<header class="drawer-head">
-				<div>
-					<h3>{selectedRow.value}</h3>
-					<p>{selectedRow.open.length} open · {selectedRow.closed.length} closed</p>
-				</div>
-				<button type="button" class="drawer-close" aria-label="Close drawer" onclick={closeRowDrawer}>
-					<X size={14} />
-				</button>
-			</header>
-			<div class="drawer-list">
-				{#if selectedRow.open.length === 0}
-					<p class="drawer-empty">No open loops in this group.</p>
-				{:else}
-					{#each selectedRow.open.slice(0, 8) as loop}
-						<article class="drawer-item">
-							<strong>{loop.title}</strong>
-							<div class="drawer-item-meta">
-								<span>{loop.priority}</span>
-								<span>{loop.energy}</span>
-								{#if loop.deadline}<span>due {loop.deadline}</span>{/if}
-							</div>
-						</article>
-					{/each}
+<ManageDrawer open={Boolean(actionMode)} title={actionTitle()} onClose={closeActionDrawer}>
+	{#snippet children()}
+		{#if selectedType && actionMode}
+			<div class="drawer-content">
+				{#if actionMode === 'renameType'}
+					<p class="drawer-copy">Rename <strong>{selectedType.name}</strong>.</p>
+					<label>
+						<span>New name</span>
+						<input bind:value={actionInput} />
+					</label>
+				{:else if actionMode === 'deleteType'}
+					<p class="drawer-copy">
+						Delete <strong>{selectedType.name}</strong> and all of its values? This cannot be undone.
+					</p>
+				{:else if actionMode === 'renameValue'}
+					<p class="drawer-copy">
+						Rename <strong>{selectedValue}</strong> in <strong>{selectedType.name}</strong>.
+					</p>
+					<label>
+						<span>New value</span>
+						<input bind:value={actionInput} />
+					</label>
+				{:else if actionMode === 'deleteValue'}
+					<p class="drawer-copy">
+						Delete value <strong>{selectedValue}</strong> from <strong>{selectedType.name}</strong>? This cannot be undone.
+					</p>
 				{/if}
-			</div>
-			<footer class="drawer-foot">
-				<a class="open-all" href={hrefForRow(selectedRow.value)}>Open in Loops</a>
-			</footer>
-		</div>
-	</div>
-{/if}
 
-{#if filterSheetOpen}
-	<div
-		class="filter-overlay"
-		role="button"
-		tabindex="0"
-		aria-label="Close tag filters"
-		onpointerdown={() => (filterSheetOpen = false)}
-		onkeydown={(event) => {
-			if (event.key === 'Escape') filterSheetOpen = false;
-		}}
-	>
-		<div
-			class="filter-sheet panel"
-			role="dialog"
-			aria-modal="true"
-			aria-label="Tag filters"
-			tabindex="-1"
-			onpointerdown={(event) => event.stopPropagation()}
-		>
-			<header class="filter-sheet-head">
-				<div>
-					<h3>Tag filters</h3>
-					<p>Choose how tags are grouped in this view.</p>
-				</div>
-				<button type="button" class="sheet-close" onclick={() => (filterSheetOpen = false)}>
-					<X size={14} />
-				</button>
-			</header>
-			<div class="filter-sheet-list">
-				{#each pivotOptions as option}
-					<button
-						type="button"
-						class="sheet-option"
-						class:active={pivot === option.slug}
-						onclick={() => {
-							pivot = option.slug;
-							filterSheetOpen = false;
-						}}
-					>
-						<span>{option.label}</span>
+				<div class="drawer-actions">
+					<button type="button" onclick={closeActionDrawer} disabled={actionBusy}>Cancel</button>
+					<button type="button" class="danger" onclick={submitAction} disabled={actionBusy}>
+						{actionBusy ? 'Working...' : 'Confirm'}
 					</button>
-				{/each}
+				</div>
 			</div>
-		</div>
-	</div>
-{/if}
+		{/if}
+	{/snippet}
+</ManageDrawer>
 
 <style>
-	.tags-view {
+	.tags-page {
 		display: grid;
 		gap: 10px;
-		min-width: 0;
-		overflow-x: hidden;
 	}
 
-	.tags-head {
-		display: grid;
-		gap: 6px;
-		position: sticky;
-		top: 0;
-		padding-top: 2px;
-		background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 98%, #fff) 70%, transparent);
-		z-index: 12;
-		width: min(100%, 40rem);
-		margin-inline: auto;
-		min-width: 0;
-	}
-
-	.tags-head h2 {
+	.page-head h2 {
 		margin: 0;
 		font-family: var(--font-serif);
 		font-size: var(--text-xl);
 	}
 
-	.pivot-rail {
-		display: flex;
-		gap: 4px;
-		overflow-x: auto;
-		padding-inline: 2px;
-		padding-bottom: 2px;
-		scrollbar-width: none;
-		-ms-overflow-style: none;
-		scroll-behavior: smooth;
+	.page-head p {
+		margin: 4px 0 0;
+		color: var(--text3);
+		font-size: var(--text-sm);
 	}
 
-	.pivot-rail::-webkit-scrollbar {
-		display: none;
-	}
-
-	.pivot-rail-wrap {
-		position: relative;
-		width: 100%;
-		max-width: 100%;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.pivot-rail-wrap::before,
-	.pivot-rail-wrap::after {
-		content: '';
-		position: absolute;
-		top: 0;
-		bottom: 2px;
-		width: 26px;
-		pointer-events: none;
-		z-index: 2;
-		opacity: 0;
-		transition: opacity 120ms ease;
-	}
-
-	.pivot-rail-wrap.overflowed::before,
-	.pivot-rail-wrap.overflowed::after {
-		opacity: 1;
-	}
-
-	.pivot-rail-wrap::before {
-		left: 0;
-		background: linear-gradient(90deg, var(--bg), transparent);
-	}
-
-	.pivot-rail-wrap::after {
-		right: 0;
-		background: linear-gradient(270deg, var(--bg), transparent);
-	}
-
-	.pivot-chevron {
-		position: absolute;
-		top: 50%;
-		transform: translateY(-50%);
-		width: 28px;
-		height: 28px;
-		border-radius: 999px;
-		border: 1px solid var(--border-soft);
-		background: color-mix(in srgb, var(--bg) 88%, #fff);
-		color: var(--text2);
+	.create-type {
 		display: grid;
-		place-items: center;
-		z-index: 3;
+		gap: 10px;
+		padding: 12px;
 	}
 
-	.pivot-chevron.left {
-		left: 0;
-	}
-
-	.pivot-chevron.right {
-		right: 0;
-	}
-
-	.rows {
-		display: grid;
-		gap: 8px;
-		min-width: 0;
-		width: 100%;
-		overflow-x: hidden;
-	}
-
-	.list-wrap {
-		width: min(100%, 40rem);
-		margin-inline: auto;
-		min-width: 0;
-		overflow-x: hidden;
-	}
-
-	.row {
-		text-decoration: none;
-		padding: 10px;
-		display: grid;
-		gap: 6px;
-		min-height: 96px;
-		min-width: 0;
-		width: 100%;
-		max-width: 100%;
-		transition:
-			transform var(--dur-fast) var(--ease),
-			box-shadow var(--dur-fast) var(--ease),
-			border-color var(--dur-fast) var(--ease);
-		border: 1px solid var(--border-soft);
-		background: var(--surface-1);
-		text-align: left;
-	}
-
-	.row:active {
-		transform: scale(0.988);
-	}
-
-	.row-head {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 8px;
-		min-width: 0;
-	}
-
-	.row-title {
-		font-family: var(--font-serif);
+	.create-type h3 {
+		margin: 0;
 		font-size: var(--text-md);
+	}
+
+	.grid {
+		display: grid;
+		gap: 8px;
+	}
+
+	label {
+		display: grid;
+		gap: 4px;
+	}
+
+	label span {
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
+		color: var(--text3);
+	}
+
+	input {
+		min-height: 36px;
+		border-radius: 10px;
+		border: 1px solid var(--border-soft);
+		background: var(--surface-2);
 		color: var(--text);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		padding: 0 10px;
 	}
 
-	.row-cta {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--text3);
-	}
-
-	.row-meta {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-
-	.meta-chip {
-		border: 1px solid var(--border-soft);
-		background: var(--surface-2);
-		border-radius: 999px;
-		padding: 1px 8px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--text3);
-		line-height: 1.6;
-	}
-
-	.meta-chip.risk {
-		border-color: color-mix(in srgb, var(--red) 22%, transparent);
-		background: color-mix(in srgb, var(--red) 8%, transparent);
-		color: var(--red);
-	}
-
-	.preview {
-		display: grid;
-		gap: 3px;
-		min-width: 0;
-	}
-
-	.preview span {
-		font-size: var(--text-sm);
-		color: var(--text2);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.drawer-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.16);
-		backdrop-filter: blur(4px);
-		display: flex;
-		align-items: flex-end;
-		z-index: 130;
-	}
-
-	.drawer {
-		width: min(100%, 40rem);
-		margin: 0 auto;
-		border-radius: 18px 18px 0 0;
-		padding: 10px;
-		padding-bottom: calc(10px + var(--safe-bottom));
-		display: grid;
-		gap: 8px;
-	}
-
-	.drawer-head {
-		display: flex;
-		align-items: start;
-		justify-content: space-between;
-		gap: 8px;
-	}
-
-	.drawer-head h3 {
-		margin: 0;
-		font-family: var(--font-serif);
-		font-size: var(--text-lg);
-	}
-
-	.drawer-head p {
-		margin: 3px 0 0;
-		font-size: var(--text-sm);
-		color: var(--text3);
-	}
-
-	.drawer-close {
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
-		border: 1px solid var(--border-soft);
-		background: var(--surface-2);
-		color: var(--text2);
-	}
-
-	.drawer-list {
-		display: grid;
-		gap: 6px;
-		max-height: min(52vh, 420px);
-		overflow: auto;
-	}
-
-	.drawer-item {
-		border: 1px solid var(--border-soft);
-		background: var(--surface-2);
-		border-radius: var(--radius-md);
-		padding: 8px;
-		display: grid;
-		gap: 4px;
-	}
-
-	.drawer-item strong {
-		font-size: var(--text-md);
-		font-family: var(--font-serif);
-		font-weight: var(--weight-normal);
-	}
-
-	.drawer-item-meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 5px;
-	}
-
-	.drawer-item-meta span {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--text3);
-	}
-
-	.drawer-empty {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--text3);
-		font-style: italic;
-	}
-
-	.drawer-foot {
+	footer {
 		display: flex;
 		justify-content: flex-end;
 	}
 
-	.open-all {
-		min-height: 38px;
-		padding: 0 12px;
-		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-		background: color-mix(in srgb, var(--accent) 10%, transparent);
-		color: var(--accent);
-		text-decoration: none;
-		display: inline-flex;
-		align-items: center;
-	}
-
-	.filter-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.2);
-		backdrop-filter: blur(6px);
-		display: flex;
-		align-items: flex-end;
-		z-index: 140;
-	}
-
-	.filter-sheet {
-		width: min(100%, 40rem);
-		margin: 0 auto;
-		max-height: min(74vh, 620px);
-		border-radius: 18px 18px 0 0;
-		border: 1px solid var(--border-soft);
-		display: grid;
-		grid-template-rows: auto 1fr;
-	}
-
-	.filter-sheet-head {
-		padding: 12px;
-		display: flex;
-		align-items: start;
-		justify-content: space-between;
-		gap: 10px;
-		border-bottom: 1px solid var(--border-soft);
-	}
-
-	.filter-sheet-head h3 {
-		margin: 0;
-		font-size: var(--text-lg);
-		font-family: var(--font-serif);
-	}
-
-	.filter-sheet-head p {
-		margin: 4px 0 0;
-		font-size: var(--text-sm);
-		color: var(--text3);
-	}
-
-	.sheet-close {
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
+	button {
+		min-height: 34px;
+		border-radius: 10px;
 		border: 1px solid var(--border-soft);
 		background: var(--surface-2);
 		color: var(--text2);
+		padding: 6px 10px;
+		font-size: var(--text-sm);
 	}
 
-	.filter-sheet-list {
-		overflow: auto;
-		padding: 10px 12px calc(10px + var(--safe-bottom));
+	.type-list {
+		display: grid;
+		gap: 8px;
+	}
+
+	.type-card {
+		display: grid;
+		gap: 8px;
+		padding: 10px;
+	}
+
+	.type-head {
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.type-head h3 {
+		margin: 0;
+		font-family: var(--font-serif);
+		font-size: var(--text-lg);
+	}
+
+	.type-head p {
+		margin: 2px 0 0;
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
+		color: var(--text3);
+	}
+
+	.value-list {
 		display: grid;
 		gap: 6px;
 	}
 
-	.sheet-option {
-		min-height: 44px;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-soft);
-		background: var(--surface-1);
+	.value-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		padding: 10px;
-		font-size: var(--text-md);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-2);
+		border-radius: 10px;
+		padding: 8px;
+	}
+
+	.value-main {
+		display: grid;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.value-main strong {
+		font-size: var(--text-sm);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.value-main small {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text3);
+	}
+
+	.actions {
+		display: inline-flex;
+		gap: 6px;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	.danger {
+		color: var(--red);
+		border-color: color-mix(in srgb, var(--red) 26%, var(--border-soft));
+	}
+
+	.muted {
+		margin: 0;
+		color: var(--text3);
+		font-size: var(--text-sm);
+	}
+
+	.drawer-content {
+		display: grid;
+		gap: 10px;
+	}
+
+	.drawer-copy {
+		margin: 0;
 		color: var(--text2);
+		font-size: var(--text-sm);
 	}
 
-	.sheet-option.active {
-		border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
-		color: var(--text);
+	.drawer-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
 	}
-
 </style>

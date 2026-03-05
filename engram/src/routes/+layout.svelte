@@ -18,12 +18,9 @@
 		{ href: '/tags', label: 'Tags', icon: Tags },
 		{ href: '/mirror', label: 'Review', icon: BarChart3 }
 	];
-	let supportsNavFilters = $derived(
-		$page.url.pathname.startsWith('/loops') || $page.url.pathname.startsWith('/tags')
-	);
+	let supportsNavFilters = $derived($page.url.pathname.startsWith('/loops'));
 	let navFilterActive = $derived.by(() => {
 		if ($page.url.pathname.startsWith('/loops')) return Boolean($navFilterActiveByRoute['/loops']);
-		if ($page.url.pathname.startsWith('/tags')) return Boolean($navFilterActiveByRoute['/tags']);
 		return false;
 	});
 

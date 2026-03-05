@@ -50,9 +50,7 @@
 			return slug && value ? [`${slug}:${value}`] : [];
 		})();
 		const nextFilters = [...new Set([...fromTagParam, ...fromPairParams])];
-		if (nextFilters.length > 0) {
-			selectedFilterIds = nextFilters;
-		}
+		selectedFilterIds = nextFilters;
 	});
 
 	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
@@ -76,36 +74,75 @@
 	});
 
 	type QuickFilter = { id: string; label: string; slug?: string; value?: string; count?: number };
-	const systemSlugs = new Set(['state', 'closed_reason', 'priority', 'energy', 'deadline', 'project', 'person', 'parent']);
-	const availableFilters = $derived.by<QuickFilter[]>(() => {
-		const filters: QuickFilter[] = [
-			{ id: 'priority:P0', label: 'P0' },
-			{ id: 'priority:P1', label: 'P1' },
-			{ id: 'energy:waiting', label: 'Waiting' },
-			{ id: 'energy:active', label: 'Active' },
-			{ id: 'deadline:today', label: 'Due today' }
-		];
-		const customCounts = new Map<string, number>();
-		for (const [loopId, loopTags] of loopTagMap.entries()) {
-			const loop = loops.find((entry) => entry.id === loopId);
-			if (!loop || loop.state !== 'open') continue;
-			for (const [slug, values] of loopTags.entries()) {
-				if (systemSlugs.has(slug)) continue;
-				for (const value of values) {
-					const key = `${slug}:${value}`;
-					customCounts.set(key, (customCounts.get(key) ?? 0) + 1);
-				}
+	const quickFilterLabels = new Map<string, string>([
+		['priority:P0', 'P0'],
+		['priority:P1', 'P1'],
+		['energy:waiting', 'Waiting'],
+		['energy:active', 'Active'],
+		['deadline:today', 'Due today']
+	]);
+	const quickFilterOrder = ['priority:P0', 'priority:P1', 'energy:waiting', 'energy:active', 'deadline:today'];
+
+	function parseToken(token: string): { slug: string; value: string } {
+		const [slug, ...rest] = token.split(':');
+		return { slug, value: rest.join(':') };
+	}
+
+	function formatFilterLabel(token: string): string {
+		const quick = quickFilterLabels.get(token);
+		if (quick) return quick;
+		const { slug, value } = parseToken(token);
+		return `${slug}:${value}`;
+	}
+
+	function filterTokensForLoop(loop: LoopView, tagBag: Map<string, string[]>): string[] {
+		const tokens = new Set<string>();
+		tokens.add(`priority:${loop.priority}`);
+		tokens.add(`energy:${loop.energy}`);
+		if (loop.deadline) {
+			tokens.add(`deadline:${loop.deadline}`);
+			if (loop.deadline === new Date().toISOString().slice(0, 10)) tokens.add('deadline:today');
+		}
+		if (loop.project) tokens.add(`project:${loop.project}`);
+		if (loop.parentId) tokens.add(`parent:${loop.parentId}`);
+		for (const person of loop.people) {
+			tokens.add(`person:${person}`);
+		}
+		for (const [slug, values] of tagBag.entries()) {
+			for (const value of values) {
+				tokens.add(`${slug}:${value}`);
 			}
 		}
-		const topCustom = [...customCounts.entries()]
-			.sort((a, b) => b[1] - a[1])
-			.slice(0, 20)
-			.map(([key, count]) => {
-				const [slug, ...rest] = key.split(':');
-				const value = rest.join(':');
-				return { id: key, label: `${slug}:${value}`, slug, value, count };
+		return [...tokens.values()];
+	}
+
+	const availableFilters = $derived.by<QuickFilter[]>(() => {
+		const counts = new Map<string, number>();
+		for (const loop of loops) {
+			const tagBag = loopTagMap.get(loop.id) ?? new Map<string, string[]>();
+			for (const token of filterTokensForLoop(loop, tagBag)) {
+				counts.set(token, (counts.get(token) ?? 0) + 1);
+			}
+		}
+		for (const token of selectedFilterIds) {
+			if (!counts.has(token)) counts.set(token, 0);
+		}
+
+		const quick = quickFilterOrder
+			.filter((token) => counts.has(token))
+			.map((token) => {
+				const { slug, value } = parseToken(token);
+				return { id: token, label: formatFilterLabel(token), slug, value, count: counts.get(token) ?? 0 };
 			});
-		return [...filters, ...topCustom];
+		const quickSet = new Set(quick.map((item) => item.id));
+		const dynamic = [...counts.entries()]
+			.filter(([token]) => !quickSet.has(token))
+			.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+			.map(([token, count]) => {
+				const { slug, value } = parseToken(token);
+				return { id: token, label: formatFilterLabel(token), slug, value, count };
+			});
+		return [...quick, ...dynamic];
 	});
 	const hasActiveFilters = $derived(selectedFilterIds.length > 0 || $activeFilter !== 'open');
 
@@ -129,9 +166,11 @@
 			const value = rest.join(':');
 			if (slug === 'priority') return loop.priority === value;
 			if (slug === 'energy') return loop.energy === value;
-			if (slug === 'deadline' && value === 'today') {
-				return Boolean(loop.deadline && loop.deadline === new Date().toISOString().slice(0, 10));
-			}
+			if (slug === 'deadline' && value === 'today') return Boolean(loop.deadline && loop.deadline === new Date().toISOString().slice(0, 10));
+			if (slug === 'deadline') return loop.deadline === value;
+			if (slug === 'project') return loop.project === value;
+			if (slug === 'parent') return loop.parentId === value;
+			if (slug === 'person') return loop.people.includes(value);
 			const values = tagBag.get(slug) ?? [];
 			return values.includes(value);
 		});
