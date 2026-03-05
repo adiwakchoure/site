@@ -8,12 +8,14 @@
 		item,
 		onAccept,
 		onDismiss,
-		stagger = 0
+		stagger = 0,
+		pending = false
 	}: {
 		item: SuggestedAction;
 		onAccept: () => void;
 		onDismiss: () => void;
 		stagger?: number;
+		pending?: boolean;
 	} = $props();
 
 	const iconMap: Record<string, typeof Check> = {
@@ -53,6 +55,7 @@
 
 <article
 	class="card"
+	class:pending={pending}
 	style={`--stagger:${stagger}ms`}
 	in:fly={{ y: 8, duration: 250, delay: stagger }}
 	out:fly={{ x: 30, duration: 200 }}
@@ -71,10 +74,10 @@
 			{/if}
 		</div>
 		<div class="head-right">
-			<button class="circle-btn accept" title="Accept" onclick={handleAccept}>
+			<button class="circle-btn accept" title="Accept" aria-label="Accept suggestion" disabled={pending} onclick={handleAccept}>
 				<Check size={14} />
 			</button>
-			<button class="circle-btn dismiss" title="Dismiss" onclick={handleDismiss}>
+			<button class="circle-btn dismiss" title="Dismiss" aria-label="Dismiss suggestion" disabled={pending} onclick={handleDismiss}>
 				<X size={14} />
 			</button>
 		</div>
@@ -114,6 +117,10 @@
 		overflow: hidden;
 	}
 
+	.card.pending {
+		opacity: 0.7;
+	}
+
 	.head {
 		display: flex;
 		align-items: center;
@@ -149,6 +156,11 @@
 		justify-content: center;
 		cursor: pointer;
 		transition: all 0.15s var(--ease-spring);
+	}
+
+	.circle-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.circle-btn.accept {

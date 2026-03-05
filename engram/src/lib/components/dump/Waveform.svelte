@@ -78,4 +78,5 @@
 		background: linear-gradient(to top, rgba(160, 113, 74, 0.4), rgba(160, 113, 74, 0.9));
 		transition: height 80ms linear;
 	}
+
 </style>

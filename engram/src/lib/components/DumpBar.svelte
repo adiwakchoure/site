@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { onDestroy } from 'svelte';
-import { Check, Clipboard, Mic, Send, StopCircle, X } from 'lucide-svelte';
-import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
+	import { onDestroy, tick } from 'svelte';
+	import { Check, Clipboard, Mic, Send, StopCircle, X } from 'lucide-svelte';
+	import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	import { parsePhase, suggestionContextStore, suggestionsStore, transcriptStore } from '$stores/app';
 	import { applySuggestion } from '$lib/suggestions';
 	import { haptic } from '$lib/utils';
@@ -29,6 +29,9 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	let durationSec = $state(0);
 	let durationInterval: ReturnType<typeof setInterval> | null = null;
 	let allDone = $state(false);
+	let liveStatus = $state('');
+	let activeSuggestion = $state<SuggestedAction | null>(null);
+	let textAreaEl = $state<HTMLTextAreaElement | null>(null);
 
 	// Audio recording
 	let recorder: MediaRecorder | null = null;
@@ -37,6 +40,8 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	let audioCtx: AudioContext | null = null;
 	let analyser = $state<AnalyserNode | null>(null);
 	let rafId: number | null = null;
+	let discardRecording = false;
+	let modeAfterRecordingStop: 'text' | 'resting' | null = null;
 
 	// Processing state
 	let wordReveal = $state<string[]>([]);
@@ -69,10 +74,23 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 
 	// --- Business logic ---
 
+	function announce(text: string) {
+		liveStatus = '';
+		queueMicrotask(() => {
+			liveStatus = text;
+		});
+	}
+
+	async function focusTextArea() {
+		await tick();
+		textAreaEl?.focus();
+	}
+
 	function toResting() {
 		mode = { kind: 'resting' };
 		text = '';
 		allDone = false;
+		activeSuggestion = null;
 		wordReveal = [];
 		revealIndex = 0;
 		slowThinking = false;
@@ -80,6 +98,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		if (slowTimer) clearTimeout(slowTimer);
 		suggestionsStore.set([]);
 		suggestionContextStore.set({ dumpId: null });
+		announce('Capture ready');
 	}
 
 	async function submitDumpText() {
@@ -90,6 +109,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		const submitted = text;
 		text = '';
 		mode = { kind: 'processing', source: 'text', transcript: submitted };
+		announce('Processing text dump');
 		parsePhase.set('parsing');
 
 		startSlowTimer();
@@ -122,6 +142,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 			suggestionsStore.set(items);
 			clearSlowTimer();
 			mode = { kind: 'suggestions', transcript: body.transcript?.trim() || submitted, items };
+			announce(`${items.length} suggestions ready`);
 		} catch {
 			transcriptStore.set({ text: submitted, source: 'text', at: new Date().toISOString() });
 			parsePhase.set('suggesting');
@@ -133,6 +154,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 			suggestionsStore.set(items);
 			clearSlowTimer();
 			mode = { kind: 'suggestions', transcript: submitted, items };
+			announce(`${items.length} suggestions ready`);
 		} finally {
 			parsePhase.set('idle');
 		}
@@ -142,6 +164,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		if (mode.kind === 'processing') return;
 
 		mode = { kind: 'processing', source: 'voice', transcript: '' };
+		announce('Transcribing voice dump');
 		parsePhase.set('transcribing');
 		startSlowTimer();
 
@@ -175,6 +198,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 			clearSlowTimer();
 			stopWordReveal();
 			mode = { kind: 'suggestions', transcript, items };
+			announce(`${items.length} suggestions ready`);
 		} catch {
 			const fallbackText = 'Could not confidently transcribe. Try speaking closer to the mic.';
 			transcriptStore.set({ text: fallbackText, source: 'voice', at: new Date().toISOString() });
@@ -188,6 +212,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 			clearSlowTimer();
 			stopWordReveal();
 			mode = { kind: 'suggestions', transcript: fallbackText, items };
+			announce(`${items.length} suggestions ready`);
 		} finally {
 			parsePhase.set('idle');
 		}
@@ -226,6 +251,8 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	async function startRecording() {
 		if (!browser || mode.kind === 'processing') return;
 		try {
+			discardRecording = false;
+			modeAfterRecordingStop = null;
 			mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			audioCtx = new AudioContext();
 			const source = audioCtx.createMediaStreamSource(mediaStream);
@@ -255,6 +282,12 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 				const blob = new Blob(audioChunks, { type: recorder?.mimeType || 'audio/webm' });
 				recorder = null;
 				audioChunks = [];
+				const shouldDiscard = discardRecording;
+				const nextMode = modeAfterRecordingStop;
+				discardRecording = false;
+				modeAfterRecordingStop = null;
+				if (nextMode) mode = { kind: nextMode };
+				if (shouldDiscard) return;
 				if (blob.size > 0) await submitDumpAudio(blob);
 			};
 
@@ -264,6 +297,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 				durationSec++;
 			}, 1000);
 			mode = { kind: 'voice' };
+			announce('Voice recording started');
 			haptic(30);
 		} catch {
 			showToast('Microphone unavailable');
@@ -276,6 +310,18 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		durationInterval = null;
 		recorder.stop();
 		haptic([15, 50, 15]);
+	}
+
+	function switchToTextMode() {
+		if (mode.kind === 'voice' && recorder && recorder.state !== 'inactive') {
+			discardRecording = true;
+			modeAfterRecordingStop = 'text';
+			stopRecording();
+			announce('Voice capture stopped. Switched to text');
+			return;
+		}
+		mode = { kind: 'text' };
+		announce('Text input mode');
 	}
 
 	async function pasteClipboard() {
@@ -292,38 +338,51 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	}
 
 	async function acceptSuggestion(item: SuggestedAction) {
-		if (mode.kind !== 'suggestions') return;
+		if (mode.kind !== 'suggestions' || activeSuggestion) return;
+		activeSuggestion = item;
 		haptic(20);
-		await applySuggestion(item, $suggestionContextStore.dumpId);
-		if (item.suggestionId) {
-			await setSuggestionStatus(item.suggestionId, 'accepted');
-		}
-		const remaining = mode.items.filter((entry) => entry !== item);
-		suggestionsStore.set(remaining);
-		showToast('Suggestion accepted');
-		if (remaining.length === 0) {
-			finishAllSuggestions();
-		} else {
-			mode = { ...mode, items: remaining };
+		try {
+			await applySuggestion(item, $suggestionContextStore.dumpId);
+			if (item.suggestionId) {
+				await setSuggestionStatus(item.suggestionId, 'accepted');
+			}
+			const remaining = mode.items.filter((entry) => entry !== item);
+			suggestionsStore.set(remaining);
+			showToast('Suggestion accepted');
+			if (remaining.length === 0) {
+				finishAllSuggestions();
+			} else {
+				mode = { ...mode, items: remaining };
+				announce(`${remaining.length} suggestions remaining`);
+			}
+		} finally {
+			activeSuggestion = null;
 		}
 	}
 
 	async function dismissSuggestion(item: SuggestedAction) {
-		if (mode.kind !== 'suggestions') return;
-		if (item.suggestionId) {
-			await setSuggestionStatus(item.suggestionId, 'dismissed');
-		}
-		const remaining = mode.items.filter((entry) => entry !== item);
-		suggestionsStore.set(remaining);
-		if (remaining.length === 0) {
-			finishAllSuggestions();
-		} else {
-			mode = { ...mode, items: remaining };
+		if (mode.kind !== 'suggestions' || activeSuggestion) return;
+		activeSuggestion = item;
+		try {
+			if (item.suggestionId) {
+				await setSuggestionStatus(item.suggestionId, 'dismissed');
+			}
+			const remaining = mode.items.filter((entry) => entry !== item);
+			suggestionsStore.set(remaining);
+			if (remaining.length === 0) {
+				finishAllSuggestions();
+			} else {
+				mode = { ...mode, items: remaining };
+				announce(`${remaining.length} suggestions remaining`);
+			}
+		} finally {
+			activeSuggestion = null;
 		}
 	}
 
 	function finishAllSuggestions() {
 		allDone = true;
+		announce('All suggestions complete');
 		setTimeout(() => {
 			toResting();
 		}, 1000);
@@ -342,6 +401,20 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		}
 	}
 
+	$effect(() => {
+		if (mode.kind === 'text') {
+			void focusTextArea();
+		}
+	});
+
+	let processingLabel = $derived.by(() => {
+		if (mode.kind !== 'processing') return '';
+		if ($parsePhase === 'transcribing') return 'Transcribing voice';
+		if ($parsePhase === 'parsing') return 'Extracting signal';
+		if ($parsePhase === 'suggesting') return 'Building actions';
+		return 'Thinking';
+	});
+
 	onDestroy(() => {
 		if (rafId !== null) cancelAnimationFrame(rafId);
 		mediaStream?.getTracks().forEach((t) => t.stop());
@@ -354,7 +427,11 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 
 <svelte:window onkeydown={handleKeydown} />
 
-<section class="pill {heightClass}" class:voice={mode.kind === 'voice'}>
+<section
+	class="pill {heightClass}"
+	class:voice={mode.kind === 'voice'}
+>
+	<span class="sr-only" aria-live="polite">{liveStatus}</span>
 	{#if mode.kind === 'resting'}
 		<!-- Resting: orb + placeholder + quick create + mic -->
 		<div class="resting-row">
@@ -362,11 +439,11 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 				class="resting-tap"
 				role="button"
 				tabindex="0"
-				onclick={() => (mode = { kind: 'text' })}
+				onclick={switchToTextMode}
 				onkeydown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
-						mode = { kind: 'text' };
+						switchToTextMode();
 					}
 				}}
 			>
@@ -374,7 +451,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 				<PlaceholderText />
 			</div>
 			<div class="resting-actions">
-				<IconBtn title="Record voice" size={44} onClick={startRecording}>
+				<IconBtn title="Record voice dump" size={44} onClick={startRecording}>
 					<Mic size={16} />
 				</IconBtn>
 			</div>
@@ -385,6 +462,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		<div class="text-mode">
 			<textarea
 				class="text-area"
+				bind:this={textAreaEl}
 				bind:value={text}
 				placeholder="What's on your mind..."
 				rows="3"
@@ -405,15 +483,19 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 						<X size={14} />
 					</IconBtn>
 				</div>
-				<button
-					class="send-btn"
-					class:enabled={!!text.trim()}
-					disabled={!text.trim()}
-					title="Send"
-					onclick={submitDumpText}
-				>
-					<Send size={14} />
-				</button>
+				<div class="text-toolbar-right">
+					<span class="text-count">{text.trim().length} chars</span>
+					<button
+						class="send-btn"
+						class:enabled={!!text.trim()}
+						disabled={!text.trim()}
+						title="Send"
+						aria-label="Send dump"
+						onclick={submitDumpText}
+					>
+						<Send size={14} />
+					</button>
+				</div>
 			</div>
 		</div>
 
@@ -428,8 +510,8 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 				</div>
 			</div>
 			<div class="voice-actions">
-				<button class="fallback-pill" onclick={() => (mode = { kind: 'text' })}>Type</button>
-				<button class="done-pill icon-only" title="Stop recording" onclick={stopRecording}>
+				<button class="fallback-pill" onclick={switchToTextMode}>Type</button>
+				<button class="done-pill icon-only" title="Stop recording" aria-label="Stop recording" onclick={stopRecording}>
 					<StopCircle size={15} />
 				</button>
 			</div>
@@ -445,9 +527,8 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 			{/if}
 			<div class="processing-footer">
 				<Orb mode="processing" />
-				{#if slowThinking}
-					<span class="slow-text">Still thinking...</span>
-				{/if}
+				<span class="phase-label">{processingLabel}</span>
+				<span class="slow-text" class:show={slowThinking}>Still thinking...</span>
 			</div>
 		</div>
 
@@ -464,6 +545,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 					{#each mode.items as item, i (`${item.action}-${item.suggestionId ?? i}`)}
 						<SuggestionCard
 							{item}
+							pending={activeSuggestion === item}
 							stagger={i * 50}
 							onAccept={() => acceptSuggestion(item)}
 							onDismiss={() => dismissSuggestion(item)}
@@ -483,6 +565,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	/* --- Pill container --- */
 	.pill {
 		margin: 0 8px 6px;
+		position: relative;
 		border-radius: var(--radius-xl);
 		background: var(--surface-1);
 		border: 1px solid var(--border-soft);
@@ -491,7 +574,9 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		overflow: hidden;
 		transition:
 			min-height 0.3s var(--ease-spring),
-			border-color 0.2s var(--ease);
+			border-color 0.2s var(--ease),
+			box-shadow 0.2s var(--ease),
+			background 0.2s var(--ease);
 	}
 
 	@supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -502,6 +587,13 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 
 	.pill.voice {
 		border-color: rgba(160, 113, 74, 0.15);
+	}
+
+	.pill {
+		background:
+			radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+			var(--surface-1);
+		box-shadow: var(--shadow-lg);
 	}
 
 	/* Height per mode */
@@ -544,10 +636,18 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		min-width: 0;
 	}
 
+	.resting-tap:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-accent);
+		border-radius: var(--radius-md);
+	}
+
 	.resting-actions {
 		display: inline-flex;
 		gap: 4px;
 		flex-shrink: 0;
+		width: 44px;
+		justify-content: center;
 	}
 
 	/* --- Text --- */
@@ -581,12 +681,31 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 10px;
 	}
 
 	.text-toolbar-left {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+		min-height: 40px;
+	}
+
+	.text-toolbar-right {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 104px;
+		justify-content: flex-end;
+	}
+
+	.text-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text4);
+		width: 56px;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.send-btn {
@@ -610,6 +729,11 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent);
 	}
 
+	.phase-label {
+		font-size: var(--text-sm);
+		color: var(--text3);
+	}
+
 	.send-btn.enabled:active {
 		transform: scale(0.92);
 	}
@@ -629,6 +753,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		min-width: 0;
 		display: grid;
 		gap: 4px;
+		align-items: center;
 	}
 
 	.voice-meta {
@@ -642,12 +767,17 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
+		min-width: 92px;
+		justify-content: flex-end;
 	}
 
 	.duration {
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--text3);
+		width: 4ch;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.done-pill {
@@ -716,13 +846,20 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		display: flex;
 		align-items: center;
 		gap: 10px;
+		min-height: 18px;
 	}
 
 	.slow-text {
 		font-size: var(--text-sm);
 		font-weight: 300;
 		color: var(--text4);
-		animation: fadeIn 0.4s var(--ease);
+		opacity: 0;
+		min-width: 86px;
+		transition: opacity 0.2s var(--ease);
+	}
+
+	.slow-text.show {
+		opacity: 1;
 	}
 
 	/* --- Suggestions --- */
@@ -749,6 +886,7 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 		gap: 8px;
 		max-height: 200px;
 		overflow-y: auto;
+		padding-right: 2px;
 	}
 
 	.all-done {
@@ -791,6 +929,14 @@ import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	@media (min-width: 1024px) {
 		.pill {
 			margin: 0 14px 12px;
+		}
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.pill .resting-row,
+		.pill .processing-mode,
+		.pill .suggestions-mode {
+			animation: fadeUp 0.25s var(--ease-spring);
 		}
 	}
 </style>
