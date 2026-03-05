@@ -148,6 +148,12 @@ select {
 	box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
 
+.app-header-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
 .app-title {
 	margin: 0;
 	font-family: var(--font-serif);
@@ -290,6 +296,13 @@ select {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+}
+
+.avatar-btn.active-filter,
+.app-link-btn.active-filter {
+	border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+	background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+	color: var(--accent);
 }
 
 .sidebar-link {

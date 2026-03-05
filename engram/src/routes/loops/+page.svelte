@@ -2,20 +2,17 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { ChevronLeft, ChevronRight, Clock, SlidersHorizontal, X } from 'lucide-svelte';
+	import { Clock, X } from 'lucide-svelte';
 	import LoopCard from '$components/LoopCard.svelte';
-	import Pill from '$components/Pill.svelte';
 	import LoopDetail from '$components/LoopDetail.svelte';
 	import Pulse from '$components/Pulse.svelte';
 	import Empty from '$components/Empty.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
 	import { closeLoop, reopenLoop, updateLoopTags } from '$db/local';
-	import { activeFilter, eventsStore, loopViewsStore, tagsStore, tagTypesStore } from '$stores/app';
+	import { activeFilter, eventsStore, loopViewsStore, navFilterActiveByRoute, navFilterSheetNonce, tagsStore, tagTypesStore } from '$stores/app';
 	import { showToast } from '$stores/toast';
 	import { isOverdue } from '$lib/utils';
 	import type { LoopEvent, LoopView, Tag, TagType } from '$types/models';
-
-	const filters: Array<'open' | 'overdue' | 'closed' | 'all'> = ['open', 'overdue', 'closed', 'all'];
 
 	let selectedLoopId = $state<string | null>(null);
 	let listHost = $state<HTMLDivElement | null>(null);
@@ -24,9 +21,7 @@
 	let pulseHint = $state(false);
 	let selectedFilterIds = $state<string[]>([]);
 	let filterSheetOpen = $state(false);
-	let controlsRailEl = $state<HTMLDivElement | null>(null);
-	let showControlsLeft = $state(false);
-	let showControlsRight = $state(false);
+	let handledNavFilterNonce = $state(0);
 
 	onMount(() => {
 		if (!browser) return;
@@ -112,13 +107,7 @@
 			});
 		return [...filters, ...topCustom];
 	});
-	const filterById = $derived(new Map(availableFilters.map((entry) => [entry.id, entry])));
-	const selectedFilters = $derived(
-		selectedFilterIds.map((id) => filterById.get(id)).filter((entry): entry is QuickFilter => Boolean(entry))
-	);
-	const quickRailFilters = $derived.by(() => {
-		return selectedFilters;
-	});
+	const hasActiveFilters = $derived(selectedFilterIds.length > 0 || $activeFilter !== 'open');
 
 	function toggleFilter(id: string) {
 		selectedFilterIds = selectedFilterIds.includes(id) ? selectedFilterIds.filter((item) => item !== id) : [...selectedFilterIds, id];
@@ -128,19 +117,8 @@
 		selectedFilterIds = [];
 	}
 
-	function updateRailOverflow(rail: HTMLDivElement | null) {
-		if (!rail) return;
-		const maxLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
-		const left = rail.scrollLeft > 6;
-		const right = maxLeft - rail.scrollLeft > 6;
-		showControlsLeft = left;
-		showControlsRight = right;
-	}
-
-	function scrollRail(rail: HTMLDivElement | null, direction: 'left' | 'right') {
-		if (!rail) return;
-		const step = Math.max(140, Math.round(rail.clientWidth * 0.7));
-		rail.scrollBy({ left: direction === 'right' ? step : -step, behavior: 'smooth' });
+	function setStatusFilter(filter: 'open' | 'overdue' | 'closed' | 'all') {
+		activeFilter.set(filter);
 	}
 
 	function loopMatchesTagFilters(loop: LoopView): boolean {
@@ -252,32 +230,17 @@
 	const loading = $derived($loopViewsStore === null);
 
 	$effect(() => {
-		if (!browser || !controlsRailEl) return;
-		const onScroll = () => updateRailOverflow(controlsRailEl);
-		const onResize = () => updateRailOverflow(controlsRailEl);
-		controlsRailEl.addEventListener('scroll', onScroll, { passive: true });
-		window.addEventListener('resize', onResize);
-		const resizeObserver = new ResizeObserver(() => updateRailOverflow(controlsRailEl));
-		resizeObserver.observe(controlsRailEl);
-		requestAnimationFrame(() => updateRailOverflow(controlsRailEl));
-		return () => {
-			controlsRailEl?.removeEventListener('scroll', onScroll);
-			window.removeEventListener('resize', onResize);
-			resizeObserver.disconnect();
-		};
+		const nonce = $navFilterSheetNonce;
+		if (!$page.url.pathname.startsWith('/loops') || nonce === handledNavFilterNonce) return;
+		handledNavFilterNonce = nonce;
+		filterSheetOpen = true;
 	});
 
 	$effect(() => {
-		openCount;
-		overdueCount;
-		closedCount;
-		requestAnimationFrame(() => updateRailOverflow(controlsRailEl));
-	});
-
-	$effect(() => {
-		selectedFilterIds;
-		quickRailFilters;
-		requestAnimationFrame(() => updateRailOverflow(controlsRailEl));
+		navFilterActiveByRoute.update((state) => ({
+			...state,
+			'/loops': hasActiveFilters
+		}));
 	});
 </script>
 
@@ -285,55 +248,15 @@
 	<Skeleton lines={5} />
 {:else}
 <div class="loops-page">
-	<section class="head-controls">
-		{#if scrub}
+	{#if scrub}
+		<section class="head-controls">
 			<div class="travel-banner">
 				<Clock size={14} />
 				<span>{scrub.date.toLocaleDateString()}</span>
 				<strong>{scrub.active} active</strong>
 			</div>
-		{:else}
-			<div class="rail-shell" class:overflowed={showControlsLeft || showControlsRight}>
-				{#if showControlsLeft}
-					<button type="button" class="rail-chevron left" aria-label="Scroll controls left" onclick={() => scrollRail(controlsRailEl, 'left')}>
-						<ChevronLeft size={15} />
-					</button>
-				{/if}
-				<div class="control-rail" bind:this={controlsRailEl}>
-					{#each filters as filter}
-						<Pill
-							label={
-								filter === 'open'
-									? `Open (${openCount})`
-									: filter === 'overdue'
-										? `Overdue (${overdueCount})`
-										: filter === 'closed'
-											? `Closed (${closedCount})`
-											: 'All'
-							}
-							active={$activeFilter === filter}
-							onClick={() => activeFilter.set(filter)}
-						/>
-					{/each}
-					<button type="button" class="filter-launch" onclick={() => (filterSheetOpen = true)}>
-						<SlidersHorizontal size={13} />
-						<span>Filters{selectedFilterIds.length ? ` (${selectedFilterIds.length})` : ''}</span>
-					</button>
-					{#if selectedFilterIds.length > 0}
-						<button type="button" class="filter-clear" onclick={clearAllFilters}>Clear</button>
-					{/if}
-					{#each quickRailFilters as quick}
-						<Pill label={quick.label} active={selectedFilterIds.includes(quick.id)} onClick={() => toggleFilter(quick.id)} />
-					{/each}
-				</div>
-				{#if showControlsRight}
-					<button type="button" class="rail-chevron right" aria-label="Scroll controls right" onclick={() => scrollRail(controlsRailEl, 'right')}>
-						<ChevronRight size={15} />
-					</button>
-				{/if}
-			</div>
-		{/if}
-	</section>
+		</section>
+	{/if}
 
 	<section class="layout">
 		<div class="list-wrap" bind:this={listHost}>
@@ -385,14 +308,32 @@
 		>
 			<header class="filter-sheet-head">
 				<div>
-					<h3>Tag filters</h3>
-					<p>Filter loops by typed tags, including custom tags.</p>
+					<h3>Filters</h3>
+					<p>Choose status and tag filters in one place.</p>
 				</div>
 				<button type="button" class="sheet-close" onclick={() => (filterSheetOpen = false)}>
 					<X size={14} />
 				</button>
 			</header>
 			<div class="filter-sheet-list">
+				<div class="sheet-section-title">Status</div>
+				<button type="button" class="sheet-option" class:active={$activeFilter === 'open'} onclick={() => setStatusFilter('open')}>
+					<span>Open</span>
+					<small>{openCount}</small>
+				</button>
+				<button type="button" class="sheet-option" class:active={$activeFilter === 'overdue'} onclick={() => setStatusFilter('overdue')}>
+					<span>Overdue</span>
+					<small>{overdueCount}</small>
+				</button>
+				<button type="button" class="sheet-option" class:active={$activeFilter === 'closed'} onclick={() => setStatusFilter('closed')}>
+					<span>Closed</span>
+					<small>{closedCount}</small>
+				</button>
+				<button type="button" class="sheet-option" class:active={$activeFilter === 'all'} onclick={() => setStatusFilter('all')}>
+					<span>All loops</span>
+				</button>
+
+				<div class="sheet-section-title tags">Tags</div>
 				{#each availableFilters as option}
 					<button type="button" class="sheet-option" class:active={selectedFilterIds.includes(option.id)} onclick={() => toggleFilter(option.id)}>
 						<span>{option.label}</span>
@@ -431,106 +372,6 @@
 		padding-top: 2px;
 		background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 98%, #fff) 68%, transparent);
 		backdrop-filter: blur(6px);
-	}
-
-	.control-rail {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 2px;
-		border-radius: 10px;
-		background: rgba(0, 0, 0, 0.025);
-		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02);
-		overflow-x: auto;
-		scrollbar-width: none;
-		-ms-overflow-style: none;
-		scroll-behavior: smooth;
-	}
-
-	.control-rail::-webkit-scrollbar {
-		display: none;
-	}
-
-	.rail-shell {
-		position: relative;
-	}
-
-	.rail-shell::before,
-	.rail-shell::after {
-		content: '';
-		position: absolute;
-		top: 0;
-		bottom: 0;
-		width: 24px;
-		pointer-events: none;
-		z-index: 2;
-		opacity: 0;
-		transition: opacity 120ms ease;
-	}
-
-	.rail-shell::before {
-		left: 0;
-		background: linear-gradient(90deg, var(--bg), transparent);
-	}
-
-	.rail-shell::after {
-		right: 0;
-		background: linear-gradient(270deg, var(--bg), transparent);
-	}
-
-	.rail-shell.overflowed::before,
-	.rail-shell.overflowed::after {
-		opacity: 1;
-	}
-
-	.rail-chevron {
-		position: absolute;
-		top: 50%;
-		transform: translateY(-50%);
-		width: 28px;
-		height: 28px;
-		border-radius: 999px;
-		border: 1px solid var(--border-soft);
-		background: color-mix(in srgb, var(--bg) 88%, #fff);
-		color: var(--text2);
-		display: grid;
-		place-items: center;
-		z-index: 3;
-	}
-
-	.rail-chevron.left {
-		left: 0;
-	}
-
-	.rail-chevron.right {
-		right: 0;
-	}
-
-	.filter-launch {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: var(--text-sm);
-		font-family: var(--font-mono);
-		color: var(--text2);
-		padding: 0 10px;
-		min-height: 36px;
-		border-radius: 999px;
-		border: 1px solid var(--border-soft);
-		background: var(--surface-2);
-		flex-shrink: 0;
-	}
-
-	.filter-clear {
-		min-height: 36px;
-		padding: 0 10px;
-		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--red) 24%, transparent);
-		background: color-mix(in srgb, var(--red) 10%, transparent);
-		color: var(--red);
-		font-size: var(--text-sm);
-		font-family: var(--font-mono);
-		flex-shrink: 0;
 	}
 
 	.travel-banner {
@@ -694,6 +535,19 @@
 		padding: 10px 12px;
 		display: grid;
 		gap: 6px;
+	}
+
+	.sheet-section-title {
+		margin-top: 4px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		letter-spacing: var(--tracking-caps);
+		color: var(--text3);
+		text-transform: uppercase;
+	}
+
+	.sheet-section-title.tags {
+		margin-top: 10px;
 	}
 
 	.sheet-option {

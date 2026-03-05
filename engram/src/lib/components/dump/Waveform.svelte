@@ -20,11 +20,16 @@
 		const activeBins = Array.from(fft).slice(2, 90);
 		const bucket = Math.floor(activeBins.length / BAR_COUNT);
 		const next: number[] = [];
+		const center = (BAR_COUNT - 1) / 2;
 		for (let i = 0; i < BAR_COUNT; i++) {
 			const start = i * bucket;
 			const chunk = activeBins.slice(start, start + bucket);
 			const mean = chunk.reduce((s, v) => s + v, 0) / Math.max(1, chunk.length);
-			next.push(Math.max(0, Math.min(1, mean / 200)));
+			const normalized = Math.max(0, Math.min(1, mean / 200));
+			const edgeDistance = Math.abs(i - center) / center;
+			// Keep a softer envelope by tapering energy toward both edges.
+			const edgeTaper = 1 - edgeDistance * 0.55;
+			next.push(normalized * edgeTaper);
 		}
 		bars = next;
 		rafId = requestAnimationFrame(tick);
@@ -63,11 +68,15 @@
 		align-items: end;
 		justify-content: center;
 		gap: 2px;
-		max-width: 200px;
-		width: 100%;
+		max-width: 250px;
+		width: min(100%, 250px);
 		margin: 0 auto;
+		height: 40px;
+		overflow: hidden;
 		animation: waveScaleIn 0.2s var(--ease-spring);
 		transform-origin: center;
+		-webkit-mask-image: linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%);
+		mask-image: linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%);
 	}
 
 	.bar {

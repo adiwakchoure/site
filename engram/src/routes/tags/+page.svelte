@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
 	import { ChevronLeft, ChevronRight, X } from 'lucide-svelte';
 	import Empty from '$components/Empty.svelte';
 	import Pill from '$components/Pill.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
-	import { loopViewsStore, tagsStore, tagTypesStore } from '$stores/app';
+	import { loopViewsStore, navFilterActiveByRoute, navFilterSheetNonce, tagsStore, tagTypesStore } from '$stores/app';
 	import { isOverdue } from '$lib/utils';
 	import type { LoopView, Tag, TagType } from '$types/models';
 
@@ -42,6 +43,8 @@
 	let showLeftChevron = $state(false);
 	let showRightChevron = $state(false);
 	let selectedRow = $state<TagRow | null>(null);
+	let filterSheetOpen = $state(false);
+	let handledNavFilterNonce = $state(0);
 
 	$effect(() => {
 		if (!browser || hydratedPivot) return;
@@ -62,6 +65,20 @@
 	$effect(() => {
 		if (!browser) return;
 		localStorage.setItem('engram:tags-pivot', pivot);
+	});
+
+	$effect(() => {
+		const nonce = $navFilterSheetNonce;
+		if (!$page.url.pathname.startsWith('/tags') || nonce === handledNavFilterNonce) return;
+		handledNavFilterNonce = nonce;
+		filterSheetOpen = true;
+	});
+
+	$effect(() => {
+		navFilterActiveByRoute.update((state) => ({
+			...state,
+			'/tags': pivot !== 'person'
+		}));
 	});
 
 	function updatePivotOverflow() {
@@ -268,6 +285,53 @@
 			<footer class="drawer-foot">
 				<a class="open-all" href={hrefForRow(selectedRow.value)}>Open in Loops</a>
 			</footer>
+		</div>
+	</div>
+{/if}
+
+{#if filterSheetOpen}
+	<div
+		class="filter-overlay"
+		role="button"
+		tabindex="0"
+		aria-label="Close tag filters"
+		onpointerdown={() => (filterSheetOpen = false)}
+		onkeydown={(event) => {
+			if (event.key === 'Escape') filterSheetOpen = false;
+		}}
+	>
+		<div
+			class="filter-sheet panel"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Tag filters"
+			tabindex="-1"
+			onpointerdown={(event) => event.stopPropagation()}
+		>
+			<header class="filter-sheet-head">
+				<div>
+					<h3>Tag filters</h3>
+					<p>Choose how tags are grouped in this view.</p>
+				</div>
+				<button type="button" class="sheet-close" onclick={() => (filterSheetOpen = false)}>
+					<X size={14} />
+				</button>
+			</header>
+			<div class="filter-sheet-list">
+				{#each pivotOptions as option}
+					<button
+						type="button"
+						class="sheet-option"
+						class:active={pivot === option.slug}
+						onclick={() => {
+							pivot = option.slug;
+							filterSheetOpen = false;
+						}}
+					>
+						<span>{option.label}</span>
+					</button>
+				{/each}
+			</div>
 		</div>
 	</div>
 {/if}
@@ -576,6 +640,83 @@
 		text-decoration: none;
 		display: inline-flex;
 		align-items: center;
+	}
+
+	.filter-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.2);
+		backdrop-filter: blur(6px);
+		display: flex;
+		align-items: flex-end;
+		z-index: 140;
+	}
+
+	.filter-sheet {
+		width: min(100%, 40rem);
+		margin: 0 auto;
+		max-height: min(74vh, 620px);
+		border-radius: 18px 18px 0 0;
+		border: 1px solid var(--border-soft);
+		display: grid;
+		grid-template-rows: auto 1fr;
+	}
+
+	.filter-sheet-head {
+		padding: 12px;
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 10px;
+		border-bottom: 1px solid var(--border-soft);
+	}
+
+	.filter-sheet-head h3 {
+		margin: 0;
+		font-size: var(--text-lg);
+		font-family: var(--font-serif);
+	}
+
+	.filter-sheet-head p {
+		margin: 4px 0 0;
+		font-size: var(--text-sm);
+		color: var(--text3);
+	}
+
+	.sheet-close {
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		border: 1px solid var(--border-soft);
+		background: var(--surface-2);
+		color: var(--text2);
+	}
+
+	.filter-sheet-list {
+		overflow: auto;
+		padding: 10px 12px calc(10px + var(--safe-bottom));
+		display: grid;
+		gap: 6px;
+	}
+
+	.sheet-option {
+		min-height: 44px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-1);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 10px;
+		font-size: var(--text-md);
+		color: var(--text2);
+	}
+
+	.sheet-option.active {
+		border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+		color: var(--text);
 	}
 
 </style>

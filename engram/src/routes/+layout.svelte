@@ -2,11 +2,11 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { BarChart3, Layers, LogOut, Tags, UserRound, X } from 'lucide-svelte';
+	import { BarChart3, Layers, SlidersHorizontal, Tags, UserRound, X } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
-	import { syncState, refreshFromServer } from '$stores/app';
+	import { navFilterActiveByRoute, navFilterSheetNonce, syncState, refreshFromServer } from '$stores/app';
 	import { toastMessage } from '$stores/toast';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
@@ -18,6 +18,18 @@
 		{ href: '/tags', label: 'Tags', icon: Tags },
 		{ href: '/mirror', label: 'Review', icon: BarChart3 }
 	];
+	let supportsNavFilters = $derived(
+		$page.url.pathname.startsWith('/loops') || $page.url.pathname.startsWith('/tags')
+	);
+	let navFilterActive = $derived.by(() => {
+		if ($page.url.pathname.startsWith('/loops')) return Boolean($navFilterActiveByRoute['/loops']);
+		if ($page.url.pathname.startsWith('/tags')) return Boolean($navFilterActiveByRoute['/tags']);
+		return false;
+	});
+
+	function openNavFilters() {
+		navFilterSheetNonce.update((n) => n + 1);
+	}
 
 	onMount(() => {
 		const isLoginRoute = () => window.location.pathname === '/login';
@@ -165,14 +177,27 @@
 				<UserRound size={14} />
 				<span>Profile</span>
 			</button>
+			{#if supportsNavFilters}
+				<button class="app-link-btn" class:active-filter={navFilterActive} type="button" onclick={openNavFilters}>
+					<SlidersHorizontal size={14} />
+					<span>Filters</span>
+				</button>
+			{/if}
 		</aside>
 
 		<div class="app-main">
 			<header class="app-header">
 				<h1 class="app-title">engram</h1>
-				<button class="avatar-btn" type="button" aria-label="Open profile" onclick={() => (profileOpen = true)}>
-					<UserRound size={15} />
-				</button>
+				<div class="app-header-actions">
+					{#if supportsNavFilters}
+						<button class="avatar-btn" class:active-filter={navFilterActive} type="button" aria-label="Open filters" onclick={openNavFilters}>
+							<SlidersHorizontal size={15} />
+						</button>
+					{/if}
+					<button class="avatar-btn" type="button" aria-label="Open profile" onclick={() => (profileOpen = true)}>
+						<UserRound size={15} />
+					</button>
+				</div>
 			</header>
 
 			<section class="content">

@@ -71,6 +71,11 @@
 
 	// --- Revealed transcript ---
 	let revealedText = $derived(wordReveal.slice(0, revealIndex).join(' '));
+	let processingTranscript = $derived.by(() => {
+		if (mode.kind !== 'processing') return '';
+		if (mode.source === 'text') return mode.transcript;
+		return revealedText;
+	});
 
 	// --- Business logic ---
 
@@ -503,10 +508,12 @@
 		<!-- Voice: floating horizontal pill -->
 		<div class="voice-inline" role="group" aria-label="Voice recording in progress">
 			<div class="voice-wave-wrap">
-				<Waveform {analyser} active={true} />
 				<div class="voice-meta">
 					<Orb mode="voice" />
 					<span class="duration">{durationDisplay}</span>
+				</div>
+				<div class="voice-wave">
+					<Waveform {analyser} active={true} />
 				</div>
 			</div>
 			<div class="voice-actions">
@@ -520,11 +527,13 @@
 	{:else if mode.kind === 'processing'}
 		<!-- Processing: transcript reveal + orb dots -->
 		<div class="processing-mode">
-			{#if mode.source === 'voice' && wordReveal.length > 0}
-				<p class="transcript">"{revealedText}"</p>
-			{:else if mode.source === 'text'}
-				<p class="transcript">"{mode.transcript}"</p>
-			{/if}
+			<p class="transcript" class:ghost={!processingTranscript}>
+				{#if processingTranscript}
+					"{processingTranscript}"
+				{:else}
+					...
+				{/if}
+			</p>
 			<div class="processing-footer">
 				<Orb mode="processing" />
 				<span class="phase-label">{processingLabel}</span>
@@ -577,6 +586,7 @@
 			border-color 0.2s var(--ease),
 			box-shadow 0.2s var(--ease),
 			background 0.2s var(--ease);
+		--action-rail-width: 110px;
 	}
 
 	@supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -614,6 +624,7 @@
 	}
 
 	.pill.suggestions {
+		min-height: 160px;
 		height: auto;
 		max-height: min(46vh, 380px);
 	}
@@ -646,8 +657,8 @@
 		display: inline-flex;
 		gap: 4px;
 		flex-shrink: 0;
-		width: 44px;
-		justify-content: center;
+		width: var(--action-rail-width);
+		justify-content: flex-end;
 	}
 
 	/* --- Text --- */
@@ -663,6 +674,8 @@
 		flex: 1;
 		width: 100%;
 		min-height: 60px;
+		padding: 0;
+		box-sizing: border-box;
 		resize: none;
 		border: none;
 		background: transparent;
@@ -695,7 +708,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
-		min-width: 104px;
+		min-width: var(--action-rail-width);
 		justify-content: flex-end;
 	}
 
@@ -703,9 +716,10 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--text4);
-		width: 56px;
+		width: 64px;
 		text-align: right;
 		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 
 	.send-btn {
@@ -732,6 +746,8 @@
 	.phase-label {
 		font-size: var(--text-sm);
 		color: var(--text3);
+		min-width: 15ch;
+		white-space: nowrap;
 	}
 
 	.send-btn.enabled:active {
@@ -744,22 +760,32 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
+		gap: 10px;
 		padding: 8px 0;
 	}
 
 	.voice-wave-wrap {
 		flex: 1;
 		min-width: 0;
-		display: grid;
-		gap: 4px;
+		display: flex;
 		align-items: center;
+		gap: 10px;
+		min-height: 40px;
 	}
 
 	.voice-meta {
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
+		min-width: 56px;
+		justify-content: flex-start;
+	}
+
+	.voice-wave {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
 	}
 
 	.voice-actions {
@@ -767,7 +793,7 @@
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
-		min-width: 92px;
+		min-width: var(--action-rail-width);
 		justify-content: flex-end;
 	}
 
@@ -775,9 +801,10 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--text3);
-		width: 4ch;
+		width: 5ch;
 		text-align: right;
 		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 
 	.done-pill {
@@ -803,14 +830,16 @@
 	}
 
 	.fallback-pill {
-		min-height: 36px;
-		padding: 6px 10px;
+		min-height: 40px;
+		min-width: 48px;
+		padding: 8px 10px;
 		border-radius: var(--radius-md);
 		border: 1px solid var(--border-soft);
 		background: var(--surface-2);
 		color: var(--text2);
 		font-size: var(--text-sm);
 		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.done-pill:active {
@@ -840,6 +869,12 @@
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
+		min-height: calc(var(--text-lg) * var(--leading-normal) * 2);
+	}
+
+	.transcript.ghost {
+		color: transparent;
+		user-select: none;
 	}
 
 	.processing-footer {
@@ -855,6 +890,7 @@
 		color: var(--text4);
 		opacity: 0;
 		min-width: 86px;
+		white-space: nowrap;
 		transition: opacity 0.2s var(--ease);
 	}
 
@@ -887,6 +923,7 @@
 		max-height: 200px;
 		overflow-y: auto;
 		padding-right: 2px;
+		scrollbar-gutter: stable;
 	}
 
 	.all-done {
@@ -913,6 +950,10 @@
 		font-size: var(--text-sm);
 		color: var(--text3);
 		flex: 1;
+		min-width: 11ch;
+		text-align: right;
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	@media (min-width: 768px) {

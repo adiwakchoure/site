@@ -71,6 +71,8 @@ export async function refreshFromServer(): Promise<boolean> {
 
 export const activeFilter = writable<'open' | 'overdue' | 'closed' | 'all'>('open');
 export const loopSort = writable<'age' | 'priority' | 'deadline'>('age');
+export const navFilterSheetNonce = writable(0);
+export const navFilterActiveByRoute = writable<Record<string, boolean>>({});
 export const suggestionsStore = writable<SuggestedAction[]>([]);
 export const syncState = writable<'synced' | 'syncing' | 'pending' | 'offline' | 'error'>('synced');
 export const parsePhase = writable<'idle' | 'transcribing' | 'parsing' | 'suggesting'>('idle');
