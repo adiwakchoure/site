@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
-	import { Check, Clipboard, Mic, Plus, Send, X } from 'lucide-svelte';
-	import { putDump, putSuggestionsForDump, setSuggestionStatus, createLoop, putLoopPerson } from '$db/local';
+import { Check, Clipboard, Mic, Send, StopCircle, X } from 'lucide-svelte';
+import { putDump, putSuggestionsForDump, setSuggestionStatus } from '$db/local';
 	import { parsePhase, suggestionContextStore, suggestionsStore, transcriptStore } from '$stores/app';
 	import { applySuggestion } from '$lib/suggestions';
 	import { haptic } from '$lib/utils';
@@ -13,7 +13,6 @@
 	import PlaceholderText from '$components/dump/PlaceholderText.svelte';
 	import Waveform from '$components/dump/Waveform.svelte';
 	import SuggestionCard from '$components/dump/SuggestionCard.svelte';
-	import QuickCreateForm from '$components/dump/QuickCreateForm.svelte';
 
 	// --- State machine ---
 	type DumpBarMode =
@@ -21,8 +20,7 @@
 		| { kind: 'text' }
 		| { kind: 'voice' }
 		| { kind: 'processing'; source: 'text' | 'voice'; transcript: string }
-		| { kind: 'suggestions'; transcript: string; items: SuggestedAction[] }
-		| { kind: 'quickcreate' };
+		| { kind: 'suggestions'; transcript: string; items: SuggestedAction[] };
 
 	let mode = $state<DumpBarMode>({ kind: 'resting' });
 
@@ -324,45 +322,11 @@
 		}
 	}
 
-	function acceptAll() {
-		if (mode.kind !== 'suggestions') return;
-		const items = [...mode.items];
-		items.forEach((item, i) => {
-			setTimeout(() => {
-				haptic(15);
-				acceptSuggestion(item);
-			}, i * 30);
-		});
-	}
-
 	function finishAllSuggestions() {
 		allDone = true;
 		setTimeout(() => {
 			toResting();
 		}, 1000);
-	}
-
-	async function handleQuickCreate(data: {
-		title: string;
-		priority: 'P0' | 'P1' | 'P2';
-		energy: 'active' | 'waiting' | 'someday';
-		people: string[];
-		project: string | null;
-		deadline: string | null;
-	}) {
-		const loop = await createLoop({
-			title: data.title,
-			priority: data.priority,
-			energy: data.energy,
-			deadline: data.deadline,
-			project: data.project ?? null
-		});
-		for (const person of data.people) {
-			await putLoopPerson(loop.id, person);
-		}
-		haptic(30);
-		showToast('Loop created');
-		toResting();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -410,10 +374,7 @@
 				<PlaceholderText />
 			</div>
 			<div class="resting-actions">
-				<IconBtn title="Quick create" size={40} onClick={() => (mode = { kind: 'quickcreate' })}>
-					<Plus size={16} />
-				</IconBtn>
-				<IconBtn title="Record voice" size={40} onClick={startRecording}>
+				<IconBtn title="Record voice" size={44} onClick={startRecording}>
 					<Mic size={16} />
 				</IconBtn>
 			</div>
@@ -457,24 +418,20 @@
 		</div>
 
 	{:else if mode.kind === 'voice'}
-		<!-- Voice: waveform + duration + done -->
-		<div
-			class="voice-mode"
-			role="button"
-			tabindex="0"
-			onclick={stopRecording}
-			onkeydown={(e) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					stopRecording();
-				}
-			}}
-		>
-			<Waveform {analyser} active={true} />
-			<div class="voice-footer">
-				<Orb mode="voice" />
-				<span class="duration">{durationDisplay}</span>
-				<button class="done-pill" onclick={(e) => { e.stopPropagation(); stopRecording(); }}>Done</button>
+		<!-- Voice: floating horizontal pill -->
+		<div class="voice-inline" role="group" aria-label="Voice recording in progress">
+			<div class="voice-wave-wrap">
+				<Waveform {analyser} active={true} />
+				<div class="voice-meta">
+					<Orb mode="voice" />
+					<span class="duration">{durationDisplay}</span>
+				</div>
+			</div>
+			<div class="voice-actions">
+				<button class="fallback-pill" onclick={() => (mode = { kind: 'text' })}>Type</button>
+				<button class="done-pill icon-only" title="Stop recording" onclick={stopRecording}>
+					<StopCircle size={15} />
+				</button>
 			</div>
 		</div>
 
@@ -517,18 +474,8 @@
 			<div class="suggestion-footer">
 				<Orb mode="suggestions" />
 				<span class="action-count">{suggestionCount} action{suggestionCount !== 1 ? 's' : ''}</span>
-				{#if suggestionCount >= 2 && !allDone}
-					<button class="accept-all-pill" onclick={acceptAll}>Accept all</button>
-				{/if}
 			</div>
 		</div>
-
-	{:else if mode.kind === 'quickcreate'}
-		<!-- Quick Create form -->
-		<QuickCreateForm
-			onSubmit={handleQuickCreate}
-			onCancel={toResting}
-		/>
 	{/if}
 </section>
 
@@ -567,7 +514,7 @@
 	}
 
 	.pill.voice {
-		min-height: 132px;
+		min-height: 60px;
 	}
 
 	.pill.processing {
@@ -577,11 +524,6 @@
 	.pill.suggestions {
 		height: auto;
 		max-height: min(46vh, 380px);
-	}
-
-	.pill.quickcreate {
-		height: auto;
-		min-height: 220px;
 	}
 
 	/* --- Resting --- */
@@ -673,21 +615,33 @@
 	}
 
 	/* --- Voice --- */
-	.voice-mode {
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		gap: 14px;
-		padding: 16px 0;
-		height: 100%;
-		cursor: pointer;
-	}
-
-	.voice-footer {
+	.voice-inline {
+		min-height: 56px;
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		gap: 12px;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 8px 0;
+	}
+
+	.voice-wave-wrap {
+		flex: 1;
+		min-width: 0;
+		display: grid;
+		gap: 4px;
+	}
+
+	.voice-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.voice-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
 	}
 
 	.duration {
@@ -707,6 +661,26 @@
 		font-weight: 400;
 		cursor: pointer;
 		transition: transform 0.15s var(--ease-spring);
+	}
+
+	.done-pill.icon-only {
+		width: 40px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+	}
+
+	.fallback-pill {
+		min-height: 36px;
+		padding: 6px 10px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-soft);
+		background: var(--surface-2);
+		color: var(--text2);
+		font-size: var(--text-sm);
+		cursor: pointer;
 	}
 
 	.done-pill:active {
@@ -801,23 +775,6 @@
 		font-size: var(--text-sm);
 		color: var(--text3);
 		flex: 1;
-	}
-
-	.accept-all-pill {
-		min-height: 40px;
-		padding: 8px 14px;
-		border-radius: var(--radius-md);
-		border: none;
-		background: var(--accent);
-		color: #fff;
-		font-size: var(--text-sm);
-		font-weight: 400;
-		cursor: pointer;
-		transition: transform 0.15s var(--ease-spring);
-	}
-
-	.accept-all-pill:active {
-		transform: scale(0.95);
 	}
 
 	@media (min-width: 768px) {

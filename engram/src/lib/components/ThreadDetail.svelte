@@ -3,8 +3,8 @@
 	import { onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { RotateCw, X } from 'lucide-svelte';
-	import { addUpdate, closeLoop, reopenLoop, updateLoop } from '$db/local';
-	import type { LoopEvent, LoopView } from '$types/models';
+	import { addUpdate, closeLoop, reopenLoop, updateLoop, updateLoopTags } from '$db/local';
+	import type { ClosedReason, LoopEvent, LoopView } from '$types/models';
 	import IconBtn from '$components/IconBtn.svelte';
 	import Badge from '$components/Badge.svelte';
 	import { showToast } from '$stores/toast';
@@ -47,6 +47,7 @@
 	let dragStartY = 0;
 	let dragStartAt = 0;
 	let dragPointerId: number | null = null;
+	let closeMenuOpen = $state(false);
 
 	const isOverdue = $derived(loop ? Boolean(loop.deadline && loop.state === 'open' && new Date(loop.deadline).getTime() < Date.now()) : false);
 	const timelineRows = $derived.by(() => {
@@ -209,11 +210,12 @@
 		}
 	}
 
-	async function resolveLoop() {
+	async function resolveLoop(reason: ClosedReason = 'done') {
 		if (!loop) return;
 		try {
-			await closeLoop(loop.id, 'done');
-			showToast('Loop closed');
+			await closeLoop(loop.id, reason);
+			showToast(reason === 'done' ? 'Loop closed' : `Loop closed as ${reason}`);
+			closeMenuOpen = false;
 		} catch {
 			showToast('Could not close loop');
 		}
@@ -224,9 +226,35 @@
 		try {
 			await reopenLoop(loop.id);
 			showToast('Loop reopened');
+			closeMenuOpen = false;
 		} catch {
 			showToast('Could not reopen loop');
 		}
+	}
+
+	async function setDeadlineQuick(value: 'today' | 'tomorrow' | 'clear') {
+		if (!loop) return;
+		const now = new Date();
+		if (value === 'today') {
+			await updateLoopTags(loop.id, { deadline: now.toISOString().slice(0, 10) });
+			showToast('Deadline set for today');
+			return;
+		}
+		if (value === 'tomorrow') {
+			const tomorrow = new Date(now);
+			tomorrow.setDate(now.getDate() + 1);
+			await updateLoopTags(loop.id, { deadline: tomorrow.toISOString().slice(0, 10) });
+			showToast('Deadline set for tomorrow');
+			return;
+		}
+		await updateLoopTags(loop.id, { deadline: null });
+		showToast('Deadline cleared');
+	}
+
+	async function setEnergyQuick(value: 'active' | 'waiting' | 'someday') {
+		if (!loop) return;
+		await updateLoopTags(loop.id, { energy: value });
+		showToast(`Energy set to ${value}`);
 	}
 
 	onDestroy(() => {
@@ -293,7 +321,25 @@
 					{/if}
 					<span class="spacer"></span>
 					{#if loop.state === 'open'}
-						<button class="header-action close-action" type="button" onclick={resolveLoop}>Close loop</button>
+						<div class="close-menu-wrap">
+							<button
+								class="header-action close-menu-trigger"
+								type="button"
+								aria-haspopup="menu"
+								aria-expanded={closeMenuOpen}
+								onclick={() => (closeMenuOpen = !closeMenuOpen)}
+							>
+								Close as
+							</button>
+							{#if closeMenuOpen}
+								<div class="close-menu panel" role="menu" transition:fade={{ duration: 120 }}>
+									<button type="button" role="menuitem" onclick={() => resolveLoop('done')}>Done</button>
+									<button type="button" role="menuitem" onclick={() => resolveLoop('delegated')}>Delegated</button>
+									<button type="button" role="menuitem" onclick={() => resolveLoop('dropped')}>Dropped</button>
+									<button type="button" role="menuitem" onclick={() => resolveLoop('irrelevant')}>Irrelevant</button>
+								</div>
+							{/if}
+						</div>
 					{:else}
 						<button class="header-action reopen-action" type="button" onclick={reopenCurrentLoop}>Reopen</button>
 					{/if}
@@ -324,6 +370,20 @@
 						<p>Opened {new Date(loop.openedAt).toLocaleDateString()}</p>
 						{#if loop.deadline}<p>Deadline {new Date(loop.deadline).toLocaleDateString()}</p>{/if}
 						{#if loop.closedAt}<p>Closed {new Date(loop.closedAt).toLocaleDateString()} ({loop.closedReason})</p>{/if}
+					</div>
+					<div class="quick-tag-row">
+						<div class="quick-group">
+							<span>deadline</span>
+							<button type="button" onclick={() => setDeadlineQuick('today')}>today</button>
+							<button type="button" onclick={() => setDeadlineQuick('tomorrow')}>tomorrow</button>
+							<button type="button" onclick={() => setDeadlineQuick('clear')}>clear</button>
+						</div>
+						<div class="quick-group">
+							<span>energy</span>
+							<button type="button" onclick={() => setEnergyQuick('active')}>active</button>
+							<button type="button" onclick={() => setEnergyQuick('waiting')}>waiting</button>
+							<button type="button" onclick={() => setEnergyQuick('someday')}>someday</button>
+						</div>
 					</div>
 				</section>
 
@@ -375,6 +435,13 @@
 					</div>
 				</section>
 			</div>
+			<footer class="sticky-actions">
+				{#if loop.state === 'open'}
+					<button class="primary-close" type="button" onclick={() => resolveLoop('done')}>Mark done</button>
+				{:else}
+					<button class="primary-close reopen" type="button" onclick={reopenCurrentLoop}>Reopen loop</button>
+				{/if}
+			</footer>
 		</div>
 	</div>
 {/if}
@@ -458,9 +525,45 @@
 		transform: scale(0.96);
 	}
 
-	.close-action {
-		background: color-mix(in srgb, var(--red) 10%, #fff);
-		color: var(--red);
+	.close-menu-wrap {
+		position: relative;
+	}
+
+	.close-menu-trigger {
+		min-height: 34px;
+		padding: 4px 10px;
+		border-radius: 999px;
+		font-size: 10px;
+		letter-spacing: 0.01em;
+		background: color-mix(in srgb, var(--surface-2) 88%, #fff);
+		border-color: var(--border-soft);
+		color: var(--text2);
+	}
+
+	.close-menu {
+		position: absolute;
+		right: 0;
+		top: calc(100% + 6px);
+		width: 140px;
+		padding: 4px;
+		display: grid;
+		gap: 2px;
+		z-index: 8;
+	}
+
+	.close-menu button {
+		min-height: 34px;
+		padding: 0 8px;
+		border-radius: 8px;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--text2);
+		text-align: left;
+		font-size: var(--text-sm);
+	}
+
+	.close-menu button:active {
+		background: color-mix(in srgb, var(--surface-2) 80%, #fff);
 	}
 
 	.reopen-action {
@@ -494,11 +597,64 @@
 		gap: 14px;
 	}
 
+	.sticky-actions {
+		padding: 10px 12px calc(10px + var(--safe-bottom));
+		border-top: 1px solid rgba(0, 0, 0, 0.05);
+		background: color-mix(in srgb, var(--bg) 92%, #fff);
+	}
+
+	.primary-close {
+		width: 100%;
+		min-height: 48px;
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--green) 36%, transparent);
+		background: color-mix(in srgb, var(--green) 20%, #fff);
+		color: var(--green);
+		font-size: var(--text-md);
+		font-weight: var(--weight-medium);
+	}
+
+	.primary-close.reopen {
+		border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+		background: color-mix(in srgb, var(--accent) 14%, #fff);
+		color: var(--accent);
+	}
+
 	.context {
 		display: grid;
-		gap: 0;
+		gap: 8px;
 		padding-bottom: 2px;
 		border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+	}
+
+	.quick-tag-row {
+		display: grid;
+		gap: 6px;
+	}
+
+	.quick-group {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.quick-group span {
+		font-size: var(--text-xs);
+		color: var(--text3);
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+	}
+
+	.quick-group button {
+		min-height: 32px;
+		padding: 5px 8px;
+		border-radius: 999px;
+		border: 1px solid var(--border-soft);
+		background: var(--surface-2);
+		color: var(--text2);
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
 	}
 
 	.timeline-section {

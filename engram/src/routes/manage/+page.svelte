@@ -1,12 +1,12 @@
 <section class="manage">
-	<h2>Manage</h2>
-	<p>This area is being rebuilt for the loop-first architecture.</p>
+	<h2>Settings</h2>
+	<p>Account and preferences live in Profile. Work controls stay in Capture, Loops, and Review.</p>
 	<ul>
-		<li>All metadata (people, projects, deadlines) now lives as tags.</li>
-		<li>Management controls are moving to loop detail and inbox triage.</li>
-		<li>Use the Loops and People tabs for now.</li>
+		<li>Loop metadata remains typed tags (no separate admin catalogs).</li>
+		<li>Set deadlines/energy in loop detail or from capture suggestions.</li>
+		<li>Use Review for lightweight action queues, not passive reporting.</li>
 	</ul>
-	<a class="logout" href="/api/auth/logout">Sign out</a>
+	<a class="logout" href="/loops">Back to loops</a>
 </section>
 
 <style>

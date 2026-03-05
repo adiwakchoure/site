@@ -1,405 +1,189 @@
 <script lang="ts">
 	import { loopViewsStore } from '$stores/app';
-	import { ageInDays } from '$lib/utils';
-	import StatCard from '$components/StatCard.svelte';
-	import SectionHeader from '$components/SectionHeader.svelte';
 	import Skeleton from '$components/Skeleton.svelte';
+	import Empty from '$components/Empty.svelte';
 	import type { LoopView } from '$types/models';
 
+	type DecisionCard = {
+		label: string;
+		value: number;
+		note: string;
+		href: string;
+		tone: 'risk' | 'focus' | 'waiting' | 'win';
+	};
+
 	const loops = $derived(($loopViewsStore ?? []) as LoopView[]);
-	const closed = $derived(loops.filter((loop) => loop.state === 'closed'));
-	const keptRate = $derived(loops.length ? Math.round((closed.filter((l) => l.closedReason === 'done').length / loops.length) * 100) : 0);
-	const open = $derived(loops.filter((loop) => loop.state === 'open'));
-	const overdue = $derived(open.filter((loop) => loop.deadline && +new Date(loop.deadline) < Date.now()));
-	const avgLifetime = $derived(closed.length
-		? Math.round(
-				closed.reduce((sum, loop) => sum + (+new Date(loop.closedAt ?? loop.updatedAt) - +new Date(loop.openedAt)), 0) /
-					closed.length /
-					(1000 * 60 * 60 * 24)
-			)
-		: 0);
-	const oldestOpen = $derived([...open].sort((a, b) => +new Date(a.openedAt) - +new Date(b.openedAt))[0] ?? null);
-	const ageBuckets = $derived.by(() => {
-		const buckets = { lt7: 0, lt14: 0, lt30: 0, gt30: 0 };
-		for (const loop of open) {
-			const age = ageInDays(loop.openedAt);
-			if (age < 7) buckets.lt7 += 1;
-			else if (age < 14) buckets.lt14 += 1;
-			else if (age < 30) buckets.lt30 += 1;
-			else buckets.gt30 += 1;
-		}
-		return buckets;
-	});
-
-	const weeklyThroughput = $derived.by(() => {
-		const now = Date.now();
-		const week = 7 * 24 * 60 * 60 * 1000;
-		const weeks: Array<{ label: string; opened: number; closed: number }> = [];
-		for (let i = 3; i >= 0; i--) {
-			const start = now - (i + 1) * week;
-			const end = now - i * week;
-			const weekOpened = loops.filter((l) => {
-				const t = +new Date(l.openedAt);
-				return t >= start && t < end;
-			}).length;
-			const weekClosed = closed.filter((l) => {
-				const t = +new Date(l.closedAt ?? l.updatedAt);
-				return t >= start && t < end;
-			}).length;
-			const label = i === 0 ? 'This wk' : i === 1 ? 'Last wk' : `${i + 1}w ago`;
-			weeks.push({ label, opened: weekOpened, closed: weekClosed });
-		}
-		return weeks;
-	});
-	const maxThroughput = $derived(Math.max(1, ...weeklyThroughput.flatMap((w) => [w.opened, w.closed])));
-
-	const contention = $derived.by(() => {
-		const counts = new Map<string, number>();
-		for (const loop of open) {
-			for (const person of loop.people) {
-				counts.set(person, (counts.get(person) ?? 0) + 1);
-			}
-		}
-		return [...counts.entries()]
-			.map(([person, count]) => ({ person, count }))
-			.sort((a, b) => b.count - a.count)
-			.slice(0, 6);
-	});
-
+	const openLoops = $derived(loops.filter((loop) => loop.state === 'open'));
+	const overdue = $derived(openLoops.filter((loop) => loop.deadline && +new Date(loop.deadline) < Date.now()));
+	const stale = $derived(openLoops.filter((loop) => Date.now() - +new Date(loop.updatedAt) > 7 * 24 * 60 * 60 * 1000));
+	const waiting = $derived(openLoops.filter((loop) => loop.energy === 'waiting'));
+	const quickWins = $derived(openLoops.filter((loop) => loop.priority !== 'P0' && !loop.deadline).slice(0, 5));
+	const highPriority = $derived(openLoops.filter((loop) => loop.priority === 'P0' || loop.priority === 'P1'));
 	const loading = $derived($loopViewsStore === null);
+
+	const cards = $derived<DecisionCard[]>([
+		{
+			label: 'Overdue now',
+			value: overdue.length,
+			note: 'Close or replan due commitments.',
+			href: '/loops?filter=overdue&sort=deadline',
+			tone: 'risk'
+		},
+		{
+			label: 'Stale > 7 days',
+			value: stale.length,
+			note: 'Either close or redefine the next step.',
+			href: '/loops?filter=open&sort=age',
+			tone: 'focus'
+		},
+		{
+			label: 'Waiting loops',
+			value: waiting.length,
+			note: 'Nudge people and unblock flow.',
+			href: '/loops?filter=open&sort=priority',
+			tone: 'waiting'
+		},
+		{
+			label: 'Quick wins',
+			value: quickWins.length,
+			note: 'Clear easy loops to build momentum.',
+			href: '/loops?filter=open&sort=age',
+			tone: 'win'
+		},
+		{
+			label: 'High priority',
+			value: highPriority.length,
+			note: 'Protect focus on high-leverage loops.',
+			href: '/loops?filter=open&sort=priority',
+			tone: 'focus'
+		}
+	]);
 </script>
 
 {#if loading}
 	<Skeleton lines={6} />
+{:else if openLoops.length === 0}
+	<Empty label="No open loops yet" icon={true} hint="Capture one loop and return here for decision shortcuts." />
 {:else}
-<section class="hero">
-	<article class="hero-card">
-		<h3>Open loops</h3>
-		<p class="hero-number">{open.length}</p>
-	</article>
-</section>
+	<section class="review">
+		<header class="review-head">
+			<h2>Decision Board</h2>
+			<p>Pick one lane and move loops to closed state now.</p>
+		</header>
 
-<section class="supporting-stats">
-	<StatCard label="Overdue" value={overdue.length} color="var(--red)" />
-	<StatCard label="Completion" value="{keptRate}%" color="var(--green)" />
-	<StatCard label="Avg age" value="{avgLifetime}d" color="var(--purple)" />
-</section>
-
-{#if oldestOpen}
-	<article class="oldest">
-		<SectionHeader label="Oldest open" color="var(--amber)" />
-		<strong>{oldestOpen.title}</strong>
-		<span>{ageInDays(oldestOpen.openedAt)}d</span>
-	</article>
-{/if}
-
-<section class="charts">
-	<article class="chart-card">
-		<SectionHeader label="Age distribution" />
-		<div class="bars">
-			<div style={`--h:${(ageBuckets.lt7 / Math.max(1, open.length)) * 100}%`}><span>&lt;7d</span></div>
-			<div style={`--h:${(ageBuckets.lt14 / Math.max(1, open.length)) * 100}%`}><span>7-14</span></div>
-			<div style={`--h:${(ageBuckets.lt30 / Math.max(1, open.length)) * 100}%`}><span>14-30</span></div>
-			<div style={`--h:${(ageBuckets.gt30 / Math.max(1, open.length)) * 100}%`}><span>30+</span></div>
-		</div>
-	</article>
-
-	<article class="chart-card">
-		<SectionHeader label="Weekly velocity" />
-		<div class="throughput">
-			{#each weeklyThroughput as week}
-				<div class="week-col">
-					<div class="week-bars">
-						<div class="week-bar opened" style={`--h:${(week.opened / maxThroughput) * 100}%`}></div>
-						<div class="week-bar closed" style={`--h:${(week.closed / maxThroughput) * 100}%`}></div>
+		<div class="decision-grid">
+			{#each cards as card}
+				<a class={`decision-card ${card.tone}`} href={card.href}>
+					<div class="card-top">
+						<span>{card.label}</span>
+						<strong>{card.value}</strong>
 					</div>
-					<span class="week-label">{week.label}</span>
-				</div>
+					<p>{card.note}</p>
+					<small>Open filtered loops</small>
+				</a>
 			{/each}
-			<div class="throughput-legend">
-				<span class="legend-dot opened"></span><span>opened</span>
-				<span class="legend-dot closed"></span><span>closed</span>
-			</div>
 		</div>
-	</article>
-</section>
-
-<article class="chart-card contention-card">
-	<SectionHeader label="Contended resources" />
-	{#if contention.length === 0}
-		<p class="empty-inline">No contention yet.</p>
-	{:else}
-		{#each contention as row}
-			<div class="resource-row">
-				<span class="resource-name" title={row.person}>{row.person}</span>
-				<div class="track"><div style={`width:${(row.count / contention[0].count) * 100}%`}></div></div>
-				<small>{row.count}</small>
-			</div>
-		{/each}
-	{/if}
-</article>
+	</section>
 {/if}
 
 <style>
-	.hero {
-		display: flex;
-		justify-content: center;
-		margin-bottom: 12px;
+	.review {
+		display: grid;
+		gap: 12px;
 	}
 
-	.hero-card {
-		flex: 1;
-		padding: 20px 16px;
+	.review-head {
+		padding: 12px;
 		border-radius: var(--radius-lg);
 		border: 1px solid var(--border-soft);
 		background: var(--surface-1);
-		box-shadow: var(--shadow-md);
-		text-align: center;
-		animation: cardIn 0.24s var(--ease-spring);
 	}
 
-	.hero-card h3 {
+	.review-head h2 {
 		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--text3);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps-wide);
+		font-family: var(--font-serif);
+		font-size: var(--text-xl);
 	}
 
-	.hero-number {
+	.review-head p {
 		margin: 6px 0 0;
+		color: var(--text2);
+	}
+
+	.decision-grid {
+		display: grid;
+		gap: 8px;
+		grid-template-columns: 1fr;
+	}
+
+	.decision-card {
+		text-decoration: none;
+		border: 1px solid var(--border-soft);
+		background: var(--surface-1);
+		border-radius: var(--radius-md);
+		padding: 12px;
+		display: grid;
+		gap: 6px;
+		min-height: 110px;
+		box-shadow: var(--shadow-sm);
+		transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+	}
+
+	.decision-card:active {
+		transform: scale(0.985);
+	}
+
+	.card-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.card-top span {
+		font-size: var(--text-sm);
+		font-family: var(--font-mono);
+		color: var(--text2);
+	}
+
+	.card-top strong {
 		font-family: var(--font-serif);
-		font-size: 36px;
-		font-weight: var(--weight-normal);
-		color: var(--accent);
+		font-size: 28px;
+		color: var(--text);
 		line-height: 1;
 	}
 
-	.supporting-stats {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 8px;
-		margin-bottom: 12px;
-	}
-
-	.oldest {
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-soft);
-		border-left: 3px solid var(--amber);
-		background: var(--surface-1);
-		box-shadow: var(--shadow-sm);
-		padding: 12px;
-		margin-bottom: 12px;
-	}
-
-	.oldest strong {
-		display: block;
-		font-family: var(--font-serif);
-		font-size: 15px;
-		font-weight: var(--weight-normal);
-		line-height: var(--leading-tight);
-		letter-spacing: var(--tracking-tight);
-	}
-
-	.oldest span {
-		font-size: var(--text-xs);
-		color: var(--text3);
-		font-family: var(--font-mono);
-	}
-
-	.charts {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 12px;
-		margin-bottom: 12px;
-	}
-
-	.chart-card {
-		padding: 12px;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-soft);
-		background: var(--surface-1);
-		box-shadow: var(--shadow-sm);
-	}
-
-	.contention-card {
-		margin-bottom: 12px;
-	}
-
-	.bars {
-		height: 100px;
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 5px;
-		align-items: end;
-	}
-
-	.bars div {
-		height: var(--h);
-		min-height: 6px;
-		border-radius: 3px 3px 0 0;
-		background: rgba(160, 113, 74, 0.5);
-		position: relative;
-	}
-
-	.bars div:last-child {
-		background: rgba(192, 69, 58, 0.5);
-	}
-
-	.bars span {
-		position: absolute;
-		top: 104%;
-		left: 50%;
-		transform: translateX(-50%);
-		font-size: var(--text-xxs);
-		color: var(--text3);
-		font-family: var(--font-mono);
-	}
-
-	.throughput {
-		height: 100px;
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 6px;
-		align-items: end;
-		position: relative;
-	}
-
-	.week-col {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 4px;
-		height: 100%;
-	}
-
-	.week-bars {
-		flex: 1;
-		display: flex;
-		gap: 2px;
-		align-items: end;
-		width: 100%;
-	}
-
-	.week-bar {
-		flex: 1;
-		min-height: 4px;
-		height: var(--h);
-		border-radius: 2px 2px 0 0;
-		transition: height 0.3s var(--ease-spring);
-	}
-
-	.week-bar.opened {
-		background: var(--accent);
-		opacity: 0.7;
-	}
-
-	.week-bar.closed {
-		background: var(--green);
-		opacity: 0.7;
-	}
-
-	.week-label {
-		font-size: var(--text-xxs);
-		color: var(--text4);
-		font-family: var(--font-mono);
-		text-align: center;
-	}
-
-	.throughput-legend {
-		position: absolute;
-		top: -2px;
-		right: 0;
-		display: flex;
-		align-items: center;
-		gap: 3px;
-		font-size: var(--text-xxs);
-		color: var(--text4);
-		font-family: var(--font-mono);
-	}
-
-	.legend-dot {
-		width: 5px;
-		height: 5px;
-		border-radius: 1px;
-	}
-
-	.legend-dot.opened {
-		background: var(--accent);
-	}
-
-	.legend-dot.closed {
-		background: var(--green);
-	}
-
-	.resource-row {
-		display: grid;
-		grid-template-columns: minmax(92px, 140px) 1fr auto;
-		align-items: center;
-		gap: 6px;
-		margin-bottom: 5px;
-	}
-
-	.resource-name {
+	.decision-card p {
 		margin: 0;
-		font-size: 12px;
-		font-weight: 300;
-		color: var(--text3);
-		text-align: right;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		font-size: var(--text-md);
+		color: var(--text2);
 	}
 
-	.track {
-		height: 3px;
-		background: rgba(0, 0, 0, 0.04);
-		border-radius: 2px;
-	}
-
-	.track > div {
-		height: 3px;
-		background: var(--accent);
-		border-radius: 2px;
-		transition: width 0.4s var(--ease-spring);
-	}
-
-	.resource-row small {
-		font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	.decision-card small {
 		font-size: var(--text-xs);
-		color: var(--accent);
-	}
-
-	.empty-inline {
-		margin: 0;
-		font-size: var(--text-sm);
+		font-family: var(--font-mono);
 		color: var(--text3);
 	}
 
-	@media (min-width: 640px) {
-		.supporting-stats {
-			grid-template-columns: repeat(3, minmax(0, 1fr));
-		}
+	.decision-card.risk {
+		border-left: 3px solid var(--red);
+	}
+
+	.decision-card.focus {
+		border-left: 3px solid var(--accent);
+	}
+
+	.decision-card.waiting {
+		border-left: 3px solid var(--purple);
+	}
+
+	.decision-card.win {
+		border-left: 3px solid var(--green);
 	}
 
 	@media (min-width: 768px) {
-		.charts {
+		.decision-grid {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
-		}
-
-		.hero-number {
-			font-size: 44px;
-		}
-	}
-
-	@media (min-width: 1024px) {
-		.chart-card {
-			padding: 14px;
-		}
-
-		.bars,
-		.throughput {
-			height: 120px;
 		}
 	}
 </style>

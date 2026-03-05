@@ -63,6 +63,12 @@
 				<ActionIcon size={13} />
 			</span>
 			<Badge label={labelMap[item.action] ?? item.action.replace('_', ' ')} color={colorMap[item.action] ?? '#5a5651'} />
+			{#if item.confidence}
+				<Badge
+					label={item.confidence}
+					color={item.confidence === 'low' ? '#c0453a' : item.confidence === 'medium' ? '#a07c28' : '#3d8a4a'}
+				/>
+			{/if}
 		</div>
 		<div class="head-right">
 			<button class="circle-btn accept" title="Accept" onclick={handleAccept}>
@@ -133,8 +139,8 @@
 	}
 
 	.circle-btn {
-		width: 28px;
-		height: 28px;
+		width: 36px;
+		height: 36px;
 		border-radius: 50%;
 		border: 1px solid var(--border-soft);
 		background: transparent;

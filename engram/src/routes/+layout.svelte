@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { BarChart3, Layers, Settings2, Users } from 'lucide-svelte';
+	import { BarChart3, Layers, LogOut, Tags, UserRound, X } from 'lucide-svelte';
 	import DumpBar from '$components/DumpBar.svelte';
 	import Toast from '$components/Toast.svelte';
 	import { syncNow } from '$db/sync';
@@ -12,11 +12,11 @@
 	import '../app.css';
 
 	let { children } = $props();
+	let profileOpen = $state(false);
 	const tabs = [
 		{ href: '/loops', label: 'Loops', icon: Layers },
-		{ href: '/people', label: 'People', icon: Users },
-		{ href: '/mirror', label: 'Mirror', icon: BarChart3 },
-		{ href: '/manage', label: 'Manage', icon: Settings2 }
+		{ href: '/tags', label: 'Tags', icon: Tags },
+		{ href: '/mirror', label: 'Review', icon: BarChart3 }
 	];
 
 	onMount(() => {
@@ -52,6 +52,30 @@
 		window.addEventListener('online', onOnline);
 		window.addEventListener('offline', onOffline);
 
+		// Track iOS dynamic browser bars + keyboard shifts.
+		const setVisualOffset = () => {
+			if (!window.visualViewport) {
+				document.documentElement.style.setProperty('--visual-viewport-offset', '0px');
+				return;
+			}
+			const active = document.activeElement as HTMLElement | null;
+			const editing =
+				active &&
+				(active.tagName === 'INPUT' ||
+					active.tagName === 'TEXTAREA' ||
+					active.isContentEditable);
+			const rawDelta = Math.max(
+				0,
+				window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
+			);
+			// Only lift UI for keyboard-sized viewport changes.
+			const delta = editing && rawDelta > 120 ? rawDelta : 0;
+			document.documentElement.style.setProperty('--visual-viewport-offset', `${Math.round(delta)}px`);
+		};
+		setVisualOffset();
+		window.visualViewport?.addEventListener('resize', setVisualOffset);
+		window.visualViewport?.addEventListener('scroll', setVisualOffset);
+
 		// Dev helper: call window.__seedDexie() in console to wipe + seed local DB
 		if (typeof window !== 'undefined') {
 			(window as unknown as Record<string, unknown>).__seedDexie = async () => {
@@ -82,6 +106,8 @@
 			clearInterval(timer);
 			window.removeEventListener('online', onOnline);
 			window.removeEventListener('offline', onOffline);
+			window.visualViewport?.removeEventListener('resize', setVisualOffset);
+			window.visualViewport?.removeEventListener('scroll', setVisualOffset);
 		};
 	});
 </script>
@@ -127,19 +153,26 @@
 				{#each tabs as tab}
 					<a
 						class="sidebar-link"
-						class:active={tab.href === '/manage' ? $page.url.pathname.startsWith('/manage') : $page.url.pathname === tab.href}
+						class:active={$page.url.pathname === tab.href}
 						href={tab.href}
 					>
-						<tab.icon size={16} strokeWidth={tab.href === '/manage' ? ($page.url.pathname.startsWith('/manage') ? 2 : 1.5) : ($page.url.pathname === tab.href ? 2 : 1.5)} />
+						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
 						<span>{tab.label}</span>
 					</a>
 				{/each}
 			</nav>
+			<button class="app-link-btn sidebar-account" type="button" onclick={() => (profileOpen = true)}>
+				<UserRound size={14} />
+				<span>Profile</span>
+			</button>
 		</aside>
 
 		<div class="app-main">
 			<header class="app-header">
 				<h1 class="app-title">engram</h1>
+				<button class="avatar-btn" type="button" aria-label="Open profile" onclick={() => (profileOpen = true)}>
+					<UserRound size={15} />
+				</button>
 			</header>
 
 			<section class="content">
@@ -150,20 +183,18 @@
 				{/key}
 			</section>
 
-			{#if !$page.url.pathname.startsWith('/manage')}
-				<div class="dump-slot">
-					<DumpBar />
-				</div>
-			{/if}
+			<div class="dump-slot">
+				<DumpBar />
+			</div>
 
 			<nav class="tab-bar">
 				{#each tabs as tab}
 					<a
 						class="tab-item"
-						class:active={tab.href === '/manage' ? $page.url.pathname.startsWith('/manage') : $page.url.pathname === tab.href}
+						class:active={$page.url.pathname === tab.href}
 						href={tab.href}
 					>
-						<tab.icon size={16} strokeWidth={tab.href === '/manage' ? ($page.url.pathname.startsWith('/manage') ? 2 : 1.5) : ($page.url.pathname === tab.href ? 2 : 1.5)} />
+						<tab.icon size={16} strokeWidth={$page.url.pathname === tab.href ? 2 : 1.5} />
 						<span>{tab.label}</span>
 						<span class="tab-underline"></span>
 					</a>
@@ -174,5 +205,46 @@
 
 	{#if $toastMessage}
 		<Toast message={$toastMessage} />
+	{/if}
+
+	{#if profileOpen}
+		<div
+			class="profile-overlay"
+			role="button"
+			tabindex="0"
+			aria-label="Close profile"
+			onpointerdown={() => (profileOpen = false)}
+			onkeydown={(event) => {
+				if (event.key === 'Escape') profileOpen = false;
+			}}
+		>
+			<div
+				class="profile-sheet"
+				role="dialog"
+				aria-modal="true"
+				aria-label="Profile and account"
+				tabindex="-1"
+				onpointerdown={(event) => event.stopPropagation()}
+			>
+				<header class="profile-head">
+					<div class="profile-title-wrap">
+						<h2>Profile</h2>
+						<p>Account and preferences</p>
+					</div>
+					<button type="button" class="profile-close" onclick={() => (profileOpen = false)}><X size={14} /></button>
+				</header>
+				<div class="profile-content">
+					<div class="profile-avatar">U</div>
+					<div class="profile-meta">
+						<strong>engram user</strong>
+						<small>Loop + tags workflow</small>
+					</div>
+				</div>
+				<footer class="profile-footer">
+					<a class="profile-action muted" href="/manage">Settings</a>
+					<a class="profile-action" href="/api/auth/logout">Sign out</a>
+				</footer>
+			</div>
+		</div>
 	{/if}
 {/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
-	import { Check, RotateCcw } from 'lucide-svelte';
+	import { Check, Clock3, RotateCcw } from 'lucide-svelte';
 	import type { LoopView } from '$types/models';
 	import { ageInDays, isOverdue } from '$lib/utils';
 	import Badge from '$components/Badge.svelte';
@@ -15,7 +15,7 @@
 		loop: LoopView;
 		ghost?: boolean;
 		onSelect: (loopId: string) => void;
-		onSwipeAction?: ((loopId: string, action: 'close' | 'reopen') => void) | undefined;
+		onSwipeAction?: ((loopId: string, action: 'close' | 'reopen' | 'snooze') => void) | undefined;
 		stagger?: number;
 	} = $props();
 
@@ -37,6 +37,7 @@
 	const swipeProgress = $derived(Math.min(1, Math.abs(swipeX) / 96));
 	const showCloseAffordance = $derived(loop.state === 'open' && swipeX < 0);
 	const showReopenAffordance = $derived(loop.state === 'closed' && swipeX > 0);
+	const showSnoozeAffordance = $derived(loop.state === 'open' && swipeX > 0);
 	const swipeLimit = 108;
 	const swipeThreshold = 72;
 
@@ -76,9 +77,10 @@
 		press = false;
 		if (swiping) {
 			const shouldClose = loop.state === 'open' && swipeX <= -swipeThreshold;
+			const shouldSnooze = loop.state === 'open' && swipeX >= swipeThreshold;
 			const shouldReopen = loop.state === 'closed' && swipeX >= swipeThreshold;
-			if (shouldClose || shouldReopen) {
-				onSwipeAction?.(loop.id, shouldClose ? 'close' : 'reopen');
+			if (shouldClose || shouldReopen || shouldSnooze) {
+				onSwipeAction?.(loop.id, shouldClose ? 'close' : shouldSnooze ? 'snooze' : 'reopen');
 			}
 		}
 		resetSwipe();
@@ -108,10 +110,13 @@
 		class="swipe-affordance"
 		class:show-close={showCloseAffordance}
 		class:show-reopen={showReopenAffordance}
+		class:show-snooze={showSnoozeAffordance}
 		aria-hidden="true"
 	>
 		{#if showReopenAffordance}
 			<RotateCcw size={15} />
+		{:else if showSnoozeAffordance}
+			<Clock3 size={15} />
 		{:else}
 			<Check size={15} />
 		{/if}
@@ -163,6 +168,8 @@
 		position: relative;
 		margin-bottom: 8px;
 		border-radius: var(--radius-md);
+		width: 100%;
+		max-width: 42rem;
 	}
 
 	.card {
@@ -234,6 +241,13 @@
 		right: auto;
 		background: color-mix(in srgb, var(--green) 16%, transparent);
 		color: var(--green);
+	}
+
+	.swipe-affordance.show-snooze {
+		left: 8px;
+		right: auto;
+		background: color-mix(in srgb, var(--amber) 16%, transparent);
+		color: var(--amber);
 	}
 
 	.main {
