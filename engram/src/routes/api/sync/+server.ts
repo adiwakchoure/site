@@ -46,9 +46,20 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 		if (change.op === 'delete') {
 			const pk = tablePrimaryKey[change.table];
 			await env.DB.prepare(`DELETE FROM ${change.table} WHERE owner_id = ? AND ${pk} = ?`).bind(userId, change.id).run();
+			await env.DB
+				.prepare(
+					`INSERT INTO sync_tombstones (owner_id, table_name, row_id, ts)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(owner_id, table_name, row_id) DO UPDATE SET ts=excluded.ts`
+				)
+				.bind(userId, change.table, change.id, now)
+				.run();
 		} else if (change.data) {
 			const dbData = normalizeForDb(change.data);
 			dbData.owner_id = userId;
+			if (change.table === 'tag_types' && typeof dbData.updated_at !== 'string') {
+				dbData.updated_at = (typeof dbData.created_at === 'string' ? dbData.created_at : now) as string;
+			}
 			await normalizeForeignKeys(env as App.Platform['env'], change.table as string, dbData, userId);
 			const keys = Object.keys(dbData);
 			const values = Object.values(dbData);
@@ -64,6 +75,10 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 				const sql = `INSERT INTO ${change.table} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${onConflict}`;
 				await env.DB.prepare(sql).bind(...values).run();
 			}
+			await env.DB
+				.prepare('DELETE FROM sync_tombstones WHERE owner_id = ? AND table_name = ? AND row_id = ?')
+				.bind(userId, change.table, change.id)
+				.run();
 		}
 	}
 
@@ -96,11 +111,11 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 		});
 	}
 	const tagTypes = await env.DB
-		.prepare('SELECT * FROM tag_types WHERE owner_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT 200')
+		.prepare('SELECT * FROM tag_types WHERE owner_id = ? AND updated_at > ? ORDER BY updated_at ASC LIMIT 200')
 		.bind(userId, lastSync)
 		.all();
 	for (const row of tagTypes.results ?? []) {
-		outgoing.push({ table: 'tag_types', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).created_at) });
+		outgoing.push({ table: 'tag_types', op: 'put', id: String((row as Record<string, unknown>).id), data: normalizeForClient(row as Record<string, unknown>), ts: String((row as Record<string, unknown>).updated_at) });
 	}
 	const tags = await env.DB
 		.prepare('SELECT * FROM tags WHERE owner_id = ? AND updated_at > ? ORDER BY updated_at ASC LIMIT 400')
@@ -134,6 +149,17 @@ export const POST: RequestHandler = async ({ locals, request, platform }) => {
 			data: normalizeForClient(row as Record<string, unknown>),
 			ts: String((row as Record<string, unknown>).created_at)
 		});
+	}
+	const tombstones = await env.DB
+		.prepare('SELECT table_name, row_id, ts FROM sync_tombstones WHERE owner_id = ? AND ts > ? ORDER BY ts ASC LIMIT 400')
+		.bind(userId, lastSync)
+		.all<Record<string, unknown>>();
+	for (const row of tombstones.results ?? []) {
+		const table = String(row.table_name ?? '');
+		const id = String(row.row_id ?? '');
+		const ts = String(row.ts ?? now);
+		if (!table || !id) continue;
+		outgoing.push({ table, op: 'delete', id, ts });
 	}
 	return json({ serverTime: now, changes: outgoing });
 };

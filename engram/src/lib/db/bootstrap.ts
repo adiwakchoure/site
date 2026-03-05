@@ -17,6 +17,7 @@ const SCHEMA_SQL = [
     multi INTEGER NOT NULL DEFAULT 0,
     system INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     UNIQUE(owner_id, slug)
   )`,
 	`CREATE TABLE IF NOT EXISTS tags (
@@ -69,9 +70,17 @@ const SCHEMA_SQL = [
     created_at TEXT NOT NULL,
     resolved_at TEXT
   )`,
+	`CREATE TABLE IF NOT EXISTS sync_tombstones (
+    owner_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    PRIMARY KEY(owner_id, table_name, row_id)
+  )`,
 	`CREATE INDEX IF NOT EXISTS idx_loops_owner_opened ON loops(owner_id, opened_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_loops_owner_closed ON loops(owner_id, closed_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_tag_types_owner_slug ON tag_types(owner_id, slug)`,
+	`CREATE INDEX IF NOT EXISTS idx_tag_types_owner_updated ON tag_types(owner_id, updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_tags_owner_loop_type ON tags(owner_id, loop_id, tag_type_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_tags_owner_type_date ON tags(owner_id, tag_type_id, value_date)`,
 	`CREATE INDEX IF NOT EXISTS idx_events_owner_loop_created ON events(owner_id, loop_id, created_at)`,
@@ -79,7 +88,8 @@ const SCHEMA_SQL = [
 	`CREATE INDEX IF NOT EXISTS idx_events_owner_loop_sequence ON events(owner_id, loop_id, sequence)`,
 	`CREATE INDEX IF NOT EXISTS idx_loop_notes_owner_loop_updated ON loop_notes(owner_id, loop_id, updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_dumps_owner_created ON dumps(owner_id, created_at)`,
-	`CREATE INDEX IF NOT EXISTS idx_suggestions_owner_dump_status_created ON suggestions(owner_id, dump_id, status, created_at)`
+	`CREATE INDEX IF NOT EXISTS idx_suggestions_owner_dump_status_created ON suggestions(owner_id, dump_id, status, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_sync_tombstones_owner_ts ON sync_tombstones(owner_id, ts)`
 ];
 
 const SYSTEM_TAG_TYPES = [
@@ -96,6 +106,15 @@ export async function ensureD1Schema(env: App.Platform['env'] | undefined) {
 	for (const sql of SCHEMA_SQL) {
 		await env.DB.prepare(sql).run();
 	}
+	try {
+		await env.DB.prepare('ALTER TABLE tag_types ADD COLUMN updated_at TEXT').run();
+	} catch {
+		// Column already exists on most environments.
+	}
+	await env.DB
+		.prepare(`UPDATE tag_types SET updated_at = COALESCE(updated_at, created_at, ?)`)
+		.bind(new Date().toISOString())
+		.run();
 	initialized = true;
 }
 
@@ -105,11 +124,16 @@ export async function ensureSystemTagTypes(env: App.Platform['env'] | undefined,
 	for (const type of SYSTEM_TAG_TYPES) {
 		await env.DB
 			.prepare(
-				`INSERT INTO tag_types (id, owner_id, slug, name, value_kind, multi, system, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-         ON CONFLICT(owner_id, slug) DO NOTHING`
+				`INSERT INTO tag_types (id, owner_id, slug, name, value_kind, multi, system, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(owner_id, slug) DO UPDATE SET
+           name=excluded.name,
+           value_kind=excluded.value_kind,
+           multi=excluded.multi,
+           system=1,
+           updated_at=excluded.updated_at`
 			)
-			.bind(`tt_${ownerId}_${type.slug}`, ownerId, type.slug, type.name, type.valueKind, type.multi, now)
+			.bind(`tt_${ownerId}_${type.slug}`, ownerId, type.slug, type.name, type.valueKind, type.multi, now, now)
 			.run();
 	}
 }

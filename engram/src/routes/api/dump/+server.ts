@@ -1,5 +1,4 @@
 import { json } from '@sveltejs/kit';
-import { env as privateEnv } from '$env/dynamic/private';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 import type { LoopPriority, SuggestedAction } from '$types/models';
@@ -8,6 +7,7 @@ import { ensureD1Schema, ensureSystemTagTypes } from '$db/bootstrap';
 const payloadSchema = z.object({ text: z.string().min(1) });
 const MAX_SUGGESTIONS = 8;
 const confidenceSchema = z.enum(['high', 'medium', 'low']);
+const tagModeSchema = z.enum(['add', 'set', 'remove']);
 const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const changesSchema = z
 	.object({
@@ -65,6 +65,7 @@ const updateLoopSchema = z
 		people: z.array(z.string()).optional(),
 		tagTypeSlug: z.string().min(1).optional(),
 		tagValue: z.string().nullable().optional(),
+		tagMode: tagModeSchema.optional(),
 		confidence: confidenceSchema.optional()
 	})
 	.strict()
@@ -76,6 +77,7 @@ const tagLoopSchema = z
 		title: z.string().min(1).optional(),
 		tagTypeSlug: z.string().min(1),
 		tagValue: z.string().nullable().optional(),
+		tagMode: tagModeSchema.optional(),
 		confidence: confidenceSchema.optional()
 	})
 	.strict()
@@ -85,7 +87,15 @@ const suggestionArraySchema = z.array(suggestionSchema).max(MAX_SUGGESTIONS);
 const modelResponseSchema = z.object({ suggestions: z.array(z.unknown()) }).strict();
 
 type LoopCtx = { id: string; title: string; content: string | null; closed_at: string | null; updated_at: string };
-type TagCtx = { loop_id: string; slug: string; value_text: string | null; value_date: string | null };
+type TagCtx = {
+	loop_id: string;
+	slug: string;
+	value_text: string | null;
+	value_date: string | null;
+	value_number: number | null;
+	value_json: string | null;
+};
+type TagTypeCtx = { id: string; slug: string; name: string; value_kind: string; multi: number };
 
 function extractHeuristicDeadline(text: string): string | null {
 	const lower = text.toLowerCase();
@@ -233,6 +243,7 @@ function normalizeSuggestions(input: unknown[] | null | undefined, fallbackText:
 				people,
 				tagTypeSlug: item.tagTypeSlug?.trim(),
 				tagValue: item.tagValue?.trim() || null,
+				tagMode: item.tagMode,
 				confidence
 			});
 		}
@@ -243,6 +254,7 @@ function normalizeSuggestions(input: unknown[] | null | undefined, fallbackText:
 				title: item.title?.trim(),
 				tagTypeSlug: item.tagTypeSlug.trim().toLowerCase(),
 				tagValue: item.tagValue?.trim() || null,
+				tagMode: item.tagMode ?? (item.tagValue == null ? 'remove' : 'set'),
 				confidence
 			});
 		}
@@ -255,6 +267,7 @@ function normalizeSuggestions(input: unknown[] | null | undefined, fallbackText:
 // Underscore-prefixed exports are allowed in SvelteKit endpoint modules.
 export const _parseModelJson = parseModelJson;
 export const _normalizeSuggestions = normalizeSuggestions;
+export const _formatContextBlock = formatContextBlock;
 
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
 const GROQ_REASONING_MODEL = 'openai/gpt-oss-120b';
@@ -297,6 +310,7 @@ const GROQ_SUGGESTIONS_RESPONSE_SCHEMA = {
 							},
 							tagTypeSlug: { type: 'string' },
 							tagValue: { type: ['string', 'null'] },
+							tagMode: { enum: ['add', 'set', 'remove'] },
 							confidence: { enum: ['high', 'medium', 'low'] }
 						},
 						required: ['action']
@@ -309,7 +323,8 @@ const GROQ_SUGGESTIONS_RESPONSE_SCHEMA = {
 } as const;
 
 function resolveGroqApiKey(env: App.Platform['env'] | undefined): string {
-	return env?.GROQ_API_KEY ?? privateEnv.GROQ_API_KEY ?? '';
+	const nodeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+	return env?.GROQ_API_KEY ?? nodeEnv?.GROQ_API_KEY ?? '';
 }
 
 async function transcribeWithGroq(audio: File, apiKey: string): Promise<string> {
@@ -374,6 +389,7 @@ interface FullContext {
 	openLoops: LoopCtx[];
 	closedLoops: LoopCtx[];
 	loopTags: TagCtx[];
+	tagTypes: TagTypeCtx[];
 	recentNotes: RecentNoteRow[];
 	recentEvents: RecentEventRow[];
 	openCount: number;
@@ -382,10 +398,10 @@ interface FullContext {
 
 async function loadActiveContext(env: App.Platform['env'], ownerId: string): Promise<FullContext> {
 	if (!env?.DB) {
-		return { openLoops: [], closedLoops: [], loopTags: [], recentNotes: [], recentEvents: [], openCount: 0, overdueCount: 0 };
+		return { openLoops: [], closedLoops: [], loopTags: [], tagTypes: [], recentNotes: [], recentEvents: [], openCount: 0, overdueCount: 0 };
 	}
 
-	const [openLoops, closedLoops, loopTags, recentNotes, recentEvents] = await Promise.all([
+	const [openLoops, closedLoops, loopTags, tagTypes, recentNotes, recentEvents] = await Promise.all([
 		env.DB.prepare(
 			`SELECT id, title, content, closed_at, updated_at
        FROM loops WHERE owner_id = ? AND closed_at IS NULL ORDER BY updated_at DESC`
@@ -395,10 +411,16 @@ async function loadActiveContext(env: App.Platform['env'], ownerId: string): Pro
        FROM loops WHERE owner_id = ? AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 30`
 		).bind(ownerId).all<LoopCtx>(),
 		env.DB.prepare(
-			`SELECT t.loop_id, tt.slug, t.value_text, t.value_date
+			`SELECT t.loop_id, tt.slug, t.value_text, t.value_date, t.value_number, t.value_json
        FROM tags t JOIN tag_types tt ON tt.id = t.tag_type_id
        WHERE t.owner_id = ?`
 		).bind(ownerId).all<TagCtx>(),
+		env.DB.prepare(
+			`SELECT id, slug, name, value_kind, multi
+       FROM tag_types
+       WHERE owner_id = ?
+       ORDER BY slug ASC`
+		).bind(ownerId).all<TagTypeCtx>(),
 		env.DB.prepare(
 			`SELECT ln.loop_id, ln.body, ln.created_at
        FROM loop_notes ln JOIN loops l ON l.id = ln.loop_id AND l.owner_id = ? AND l.closed_at IS NULL
@@ -427,6 +449,7 @@ async function loadActiveContext(env: App.Platform['env'], ownerId: string): Pro
 		openLoops: open,
 		closedLoops: closedLoops.results ?? [],
 		loopTags: loopTags.results ?? [],
+		tagTypes: tagTypes.results ?? [],
 		recentNotes: recentNotes.results ?? [],
 		recentEvents: recentEvents.results ?? [],
 		openCount: open.length,
@@ -437,6 +460,7 @@ async function loadActiveContext(env: App.Platform['env'], ownerId: string): Pro
 function formatContextBlock(ctx: FullContext): string {
 	const openLoops = ctx.openLoops.slice(0, 40);
 	const closedLoops = ctx.closedLoops.slice(0, 20);
+	const systemSlugs = new Set(['priority', 'deadline', 'project', 'person', 'state']);
 	const loopTagMap = new Map<string, TagCtx[]>();
 	for (const tag of ctx.loopTags) {
 		const list = loopTagMap.get(tag.loop_id) ?? [];
@@ -461,6 +485,14 @@ function formatContextBlock(ctx: FullContext): string {
 		loopEventsMap.set(e.loop_id, list);
 	}
 
+	function formatTagValue(tag: TagCtx): string {
+		if (tag.value_text != null) return tag.value_text;
+		if (tag.value_date != null) return tag.value_date;
+		if (tag.value_number != null) return String(tag.value_number);
+		if (tag.value_json != null) return tag.value_json;
+		return 'null';
+	}
+
 	function formatOpenLoop(l: LoopCtx): string {
 		const tags = loopTagMap.get(l.id) ?? [];
 		const get = (slug: string) => tags.find((t) => t.slug === slug);
@@ -474,6 +506,12 @@ function formatContextBlock(ctx: FullContext): string {
 		if (project) meta.push(`project: ${project}`);
 		if (people) meta.push(`people: ${people}`);
 		meta.push(`updated ${l.updated_at.slice(0, 10)}`);
+		const customTagSummary = tags
+			.filter((tag) => !systemSlugs.has(tag.slug))
+			.map((tag) => `${tag.slug}=${formatTagValue(tag)}`)
+			.slice(0, 8)
+			.join(', ');
+		if (customTagSummary) meta.push(`custom: ${customTagSummary}`);
 
 		let line = `- id=${l.id} title="${l.title}" | ${meta.join(' | ')}`;
 
@@ -490,6 +528,17 @@ function formatContextBlock(ctx: FullContext): string {
 	}
 
 	const sections: string[] = [];
+
+	sections.push('== TAG CATALOG ==');
+	if (ctx.tagTypes.length > 0) {
+		sections.push(
+			ctx.tagTypes
+				.map((type) => `- ${type.slug} (${type.value_kind}${type.multi ? ', multi' : ''}) name="${type.name}"`)
+				.join('\n')
+		);
+	} else {
+		sections.push('(none)');
+	}
 
 	sections.push('== OPEN LOOPS ==');
 	if (openLoops.length > 0) {
@@ -597,6 +646,8 @@ Hard rules:
   - add_note for status updates
   - update_loop for changing title/content/priority/deadline/project
   - tag_loop for additional tags
+- Prefer slugs from TAG CATALOG for tag_loop; avoid inventing unknown slugs.
+- For tag_loop: tagMode="add" to append, "set" to replace value, "remove" to delete.
 - Keep text concise. Do not output explanation prose.`;
 
 		const userPrompt = `Date: ${dayName}, ${today}

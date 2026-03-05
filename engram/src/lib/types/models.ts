@@ -49,6 +49,7 @@ export interface TagType {
 	multi: number;
 	system: number;
 	createdAt: string;
+	updatedAt: string;
 }
 
 export interface Tag {
@@ -84,6 +85,7 @@ export interface SuggestionRecord {
 
 export type SuggestionAction = 'open_loop' | 'close_loop' | 'add_note' | 'update_loop' | 'tag_loop';
 export type SuggestionConfidence = 'high' | 'medium' | 'low';
+export type TagMutationMode = 'add' | 'set' | 'remove';
 
 export interface SuggestedLoopChanges {
 	title?: string;
@@ -96,6 +98,7 @@ export interface SuggestedLoopChanges {
 export interface SuggestionMutationTagPatch {
 	slug: string;
 	value: string | null;
+	mode?: TagMutationMode;
 	multi?: boolean;
 	valueKind?: TagValueKind;
 }
@@ -134,6 +137,7 @@ interface SuggestedActionBase {
 	changes?: SuggestedLoopChanges;
 	tagTypeSlug?: string;
 	tagValue?: string | null;
+	tagMode?: TagMutationMode;
 	confidence?: SuggestionConfidence;
 }
 
@@ -173,6 +177,7 @@ export type SuggestedAction =
 			title?: string;
 			tagTypeSlug: string;
 			tagValue?: string | null;
+			tagMode?: TagMutationMode;
 	  });
 
 export type SyncTable = 'loops' | 'events' | 'dumps' | 'loop_notes' | 'tag_types' | 'tags';

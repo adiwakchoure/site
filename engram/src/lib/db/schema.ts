@@ -18,7 +18,7 @@ export class EngramDB extends Dexie {
 			loops: 'id, title, openedAt, closedAt, updatedAt',
 			events: 'id, loopId, kind, dumpId, sequence, createdAt',
 			loopNotes: 'id, loopId, createdAt, updatedAt',
-			tagTypes: 'id, slug, name, valueKind, multi, system, createdAt',
+			tagTypes: 'id, slug, name, valueKind, multi, system, createdAt, updatedAt',
 			tags: 'id, loopId, tagTypeId, valueText, valueDate, updatedAt',
 			dumps: 'id, processed, createdAt',
 			suggestions: 'id, dumpId, status, action, createdAt, resolvedAt',

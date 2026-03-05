@@ -13,17 +13,24 @@ import type {
 } from '$types/models';
 import { uid } from '$lib/utils';
 import { syncNow } from '$db/sync';
-import { refreshFromServer } from '$stores/app';
+import { refreshFromServer, syncState } from '$stores/app';
 
 const nowIso = () => new Date().toISOString();
 
 const queue = async (op: Omit<SyncOp, 'seq'>) => db.syncQueue.add(op);
 
 function syncAndRefresh() {
-	if (typeof navigator === 'undefined' || !navigator.onLine) return;
+	if (typeof navigator === 'undefined' || !navigator.onLine) {
+		syncState.set('offline');
+		return;
+	}
+	syncState.set('syncing');
 	syncNow()
 		.then(() => refreshFromServer())
-		.catch(() => {});
+		.then((ok) => syncState.set(ok ? 'synced' : 'error'))
+		.catch(() => {
+			syncState.set('error');
+		});
 }
 
 async function putEvent(event: LoopEvent) {
@@ -52,7 +59,7 @@ async function touchLoop(loopId: string, at: string) {
 
 async function putTagType(type: TagType) {
 	await db.tagTypes.put(type);
-	await queue({ table: 'tag_types', op: 'put', id: type.id, data: type as unknown as Record<string, unknown>, ts: type.createdAt });
+	await queue({ table: 'tag_types', op: 'put', id: type.id, data: type as unknown as Record<string, unknown>, ts: type.updatedAt });
 }
 
 async function putTag(tag: Tag) {
@@ -96,7 +103,8 @@ export async function ensureTagType(slug: string, opts?: { name?: string; valueK
 		valueKind: opts?.valueKind ?? 'text',
 		multi: opts?.multi ?? 0,
 		system: opts?.system ?? 0,
-		createdAt: now
+		createdAt: now,
+		updatedAt: now
 	};
 	await putTagType(type);
 	return type;
@@ -127,6 +135,19 @@ export async function setLoopTag(loopId: string, slug: string, value: string | n
 
 export async function applyLoopTagPatches(loopId: string, patches: SuggestionMutationTagPatch[]) {
 	for (const patch of patches) {
+		const mode = patch.mode ?? 'set';
+		if (mode === 'remove') {
+			if (patch.multi && patch.value) await clearLoopTagValue(loopId, patch.slug, patch.value);
+			else await clearLoopTag(loopId, patch.slug);
+			continue;
+		}
+		if (mode === 'set' && patch.multi) {
+			await clearLoopTag(loopId, patch.slug);
+		}
+		if (mode === 'set' && !patch.multi && patch.value == null) {
+			await clearLoopTag(loopId, patch.slug);
+			continue;
+		}
 		await setLoopTag(loopId, patch.slug, patch.value ?? null, {
 			valueKind: patch.valueKind,
 			multi: patch.multi ? 1 : 0
@@ -145,6 +166,20 @@ export async function clearLoopTag(loopId: string, slug: string) {
 	}
 }
 
+export async function clearLoopTagValue(loopId: string, slug: string, value: string) {
+	const normalized = value.trim();
+	if (!normalized) return;
+	const type = await db.tagTypes.where('slug').equals(slug).first();
+	if (!type) return;
+	const tags = await db.tags.where('loopId').equals(loopId).and((tag) => tag.tagTypeId === type.id).toArray();
+	const now = nowIso();
+	for (const tag of tags) {
+		if (readTagValue(tag) !== normalized) continue;
+		await db.tags.delete(tag.id);
+		await queue({ table: 'tags', op: 'delete', id: tag.id, ts: now });
+	}
+}
+
 export async function createTagType(input: { name: string; slug: string; valueKind?: TagType['valueKind']; multi?: number }) {
 	const slug = input.slug.trim().toLowerCase();
 	if (!slug) throw new Error('Slug is required');
@@ -158,7 +193,8 @@ export async function createTagType(input: { name: string; slug: string; valueKi
 		valueKind: input.valueKind ?? 'text',
 		multi: input.multi ?? 0,
 		system: 0,
-		createdAt: now
+		createdAt: now,
+		updatedAt: now
 	};
 	await putTagType(tagType);
 	syncAndRefresh();
@@ -170,7 +206,7 @@ export async function renameTagType(tagTypeId: string, nextName: string) {
 	if (!current) return null;
 	const name = nextName.trim();
 	if (!name || name === current.name) return current;
-	const next: TagType = { ...current, name };
+	const next: TagType = { ...current, name, updatedAt: nowIso() };
 	await putTagType(next);
 	syncAndRefresh();
 	return next;
@@ -491,7 +527,7 @@ export async function putLoopPerson(loopId: string, personName: string) {
 }
 
 export async function removeLoopPerson(loopId: string, personId: string) {
-	await clearLoopTag(loopId, 'person');
+	await clearLoopTagValue(loopId, 'person', personId);
 	syncAndRefresh();
 }
 

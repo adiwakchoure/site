@@ -43,4 +43,34 @@ describe('mapSuggestionToMutationPlan', () => {
 		expect(plan).toBeTruthy();
 		expect(isNoopMutationPlan(plan!)).toBe(false);
 	});
+
+	it('maps tag_loop null value to remove mode', () => {
+		const plan = mapSuggestionToMutationPlan({
+			action: 'tag_loop',
+			title: 'ThreadDetail polish',
+			tagTypeSlug: 'blocked_by',
+			tagValue: null
+		});
+		expect(plan?.kind).toBe('set_tag');
+		expect(plan?.tags?.[0]).toMatchObject({
+			slug: 'blocked_by',
+			value: null,
+			mode: 'remove'
+		});
+	});
+
+	it('preserves explicit add mode for tag_loop', () => {
+		const plan = mapSuggestionToMutationPlan({
+			action: 'tag_loop',
+			title: 'ThreadDetail polish',
+			tagTypeSlug: 'person',
+			tagValue: 'Avery',
+			tagMode: 'add'
+		});
+		expect(plan?.tags?.[0]).toMatchObject({
+			slug: 'person',
+			value: 'Avery',
+			mode: 'add'
+		});
+	});
 });

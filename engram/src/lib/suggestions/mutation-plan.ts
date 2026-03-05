@@ -4,6 +4,11 @@ export function normalizeTagSlug(raw: string): string {
 	return raw.trim().toLowerCase().replace(/^[@#]+/, '').replace(/\s+/g, '_');
 }
 
+function resolveTagMode(item: { tagMode?: 'add' | 'set' | 'remove'; tagValue?: string | null }): 'add' | 'set' | 'remove' {
+	if (item.tagMode) return item.tagMode;
+	return item.tagValue == null ? 'remove' : 'set';
+}
+
 export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMutationPlan | null {
 	if (item.action === 'open_loop') {
 		return {
@@ -19,8 +24,8 @@ export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMu
 				{ slug: 'priority', value: item.priority ?? 'P1' },
 				...(item.deadline ? [{ slug: 'deadline', value: item.deadline, valueKind: 'date' as const }] : []),
 				...(item.project ? [{ slug: 'project', value: item.project }] : []),
-				...(item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true })),
-				...(item.tags ?? []).map((slug) => ({ slug: normalizeTagSlug(slug), value: 'true', multi: true }))
+				...(item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true, mode: 'add' as const })),
+				...(item.tags ?? []).map((slug) => ({ slug: normalizeTagSlug(slug), value: 'true', multi: true, mode: 'add' as const }))
 			],
 			confidence: item.confidence
 		};
@@ -31,7 +36,7 @@ export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMu
 			kind: 'close_loop',
 			loopId: item.loopId,
 			loopTitleHint: item.title,
-			tags: (item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true })),
+			tags: (item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true, mode: 'add' as const })),
 			confidence: item.confidence
 		};
 	}
@@ -42,7 +47,7 @@ export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMu
 			loopId: item.loopId,
 			loopTitleHint: item.title,
 			noteText: item.text,
-			tags: (item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true })),
+			tags: (item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true, mode: 'add' as const })),
 			confidence: item.confidence
 		};
 	}
@@ -60,8 +65,10 @@ export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMu
 				project: item.changes?.project ?? item.project
 			},
 			tags: [
-				...(item.tagTypeSlug ? [{ slug: normalizeTagSlug(item.tagTypeSlug), value: item.tagValue ?? null, multi: true }] : []),
-				...(item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true }))
+				...(item.tagTypeSlug
+					? [{ slug: normalizeTagSlug(item.tagTypeSlug), value: item.tagValue ?? null, multi: true, mode: resolveTagMode(item) }]
+					: []),
+				...(item.people ?? []).map((name) => ({ slug: 'person', value: name, multi: true, mode: 'add' as const }))
 			],
 			confidence: item.confidence
 		};
@@ -72,7 +79,7 @@ export function mapSuggestionToMutationPlan(item: SuggestedAction): SuggestionMu
 			kind: 'set_tag',
 			loopId: item.loopId,
 			loopTitleHint: item.title,
-			tags: [{ slug: normalizeTagSlug(item.tagTypeSlug), value: item.tagValue ?? null, multi: true }],
+			tags: [{ slug: normalizeTagSlug(item.tagTypeSlug), value: item.tagValue ?? null, multi: true, mode: resolveTagMode(item) }],
 			confidence: item.confidence
 		};
 	}
